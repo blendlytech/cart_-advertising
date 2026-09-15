@@ -11,6 +11,7 @@ A collection of prospecting resources, cold calling scripts, target market direc
 │   └── Phone_Scr188106.wav     # Uncompressed WAV format
 ├── docs/
 │   ├── internet_prospecting_guide.md       # Online lead source directories
+│   ├── lead_generation.md                 # Priority business targets & qualification criteria
 │   ├── realtor_script.md                   # Cold call pitch script for real estate agents
 │   ├── safeway_referral_script.md          # Customer referral program script
 │   ├── shopping_cart_directory_script.md   # General shopping cart directory pitch
@@ -22,5 +23,5 @@ A collection of prospecting resources, cold calling scripts, target market direc
 ## Contents
 
 - **Cold Call Scripts:** Word-for-word scripts tailored for real estate agents and local businesses.
-- **Prospecting Guide:** Reference directories for local advertising leads across newspapers, radio, direct mailers, and business associations.
+- **Prospecting Guide & Priorities:** Lead generation priority guide and directories across newspapers, radio, direct mailers, and business associations.
 - **Target Categories:** Categorized index of local service providers and retailers ideal for cart advertising.
