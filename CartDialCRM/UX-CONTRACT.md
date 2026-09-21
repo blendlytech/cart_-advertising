@@ -13,6 +13,7 @@ are intentional; browser-only CSS/ARIA/URL contracts do not apply.
 | Toast | native messagebox + persistent labels | App | status/error | desktop check pending |
 | CRUD | Database | crm.py | create/edit, no deletion | test_crm.py |
 | Dial handoff | dial_uri + App.dial_lead | crm.py | card button, Ctrl+D on list | test_crm.py |
+| Call script | build_script + Database.script_for | crm.py | derived, or stored per lead | test_crm.py |
 
 Call insert and status update are atomic. Imported duplicates never overwrite
 existing records. Each explicit saved call counts one dial. Imported notes and
@@ -26,6 +27,15 @@ lead is never dialed. A dial always opens the call form, which then refuses to
 close without an explicit outcome or an acknowledged no-call. Saving a dialed
 call closes the lead card and returns focus to the list; the list preserves its
 selection across refresh so the next lead stays reachable by keyboard.
+Each lead has a call script. With nothing stored it is derived from the lead's
+own fields by build_script, so correcting a lead corrects its script; missing
+values appear as visible [BRACKETS] rather than silent gaps. A stored script
+replaces the derived one, and once the user edits a script it is marked and
+set_script refuses to overwrite it without force. Script generation is offline
+text assembly; any research that enriches it happens outside this app and lands
+in the ordinary About, notes, decision maker, and website fields. The dialed
+call form carries the script, because the lead card is unreachable behind it.
+Script columns are added to existing databases by ALTER TABLE at startup.
 Native dialogs, keyboard traversal,
 text selection, scrolling, Escape, and window Close are the desktop primitives.
 There are no app-controlled web dialogs. No delete operation is provided.

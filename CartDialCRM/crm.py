@@ -21,6 +21,19 @@ FIELDS = ['business_name', 'phone', 'decision_maker', 'category', 'store', 'addr
 LABELS = ['Business name', 'Phone number', 'Decision maker', 'Business type', 'Store / location', 'Meeting address', 'Website', 'About this business', 'General notes']
 OUTCOMES = ['No answer', 'Voicemail', 'Gatekeeper', 'Spoke to decision maker', 'Callback requested', 'Appointment set', 'Not interested', 'Wrong number', 'Do not call']
 STATUSES = ['New', 'Working', 'Callback', 'Appointment set', 'Not interested', 'Wrong number', 'Do not call']
+# How a business type is said out loud in 'we restrict each store to just ONE ___'.
+# Categories with no entry fall back to the lowercased category name.
+TRADE_NOUNS = {
+    'Realtors': 'real estate agent',
+    'Insurance Agents': 'insurance agent',
+    'Automotive Repair': 'auto repair shop',
+    'Spas and Salons': 'salon',
+    'Doctors and Urgent Care Clinics': 'urgent care clinic',
+    'Construction & Home Services': 'contractor',
+    'Pet Grooming and Boarding': 'pet groomer',
+    'Restaurants and Pizza': 'restaurant',
+    'Chiropractors and Therapeutic Massage Studios': 'chiropractor',
+}
 ALIASES = {'business':'business_name','businessname':'business_name','company':'business_name','companyname':'business_name','phone':'phone','phonenumber':'phone','telephone':'phone','decisionmaker':'decision_maker','decisionmakername':'decision_maker','contact':'decision_maker','contactname':'decision_maker','name':'decision_maker','notes':'notes','note':'notes','about':'about','aboutthisbusiness':'about','businessinformation':'about','category':'category','businesscategory':'category','store':'store','storelocation':'store','address':'address','meetingaddress':'address','website':'website'}
 ALIASES.update({'businesstype':'category','typeofbusiness':'category'})
 
@@ -63,6 +76,107 @@ def dial_uri(value):
     digits = phone_key(value)
     return f'tel://{digits}' if len(digits) == 10 else None
 
+def store_label(store):
+    """Split 'Save Mart #781 Schulte - 875 S Tracy Blvd, Tracy CA' into chain and street."""
+    head, _, tail = store.partition(' - ')
+    chain = head.split('#')[0].strip() or head.strip()
+    street = re.sub(r'^\s*\d+\s+', '', tail.split(',')[0]).strip()
+    street = re.sub(r'^[NSEW]\s+', '', street)  # 'S Tracy Blvd' reads better spoken as 'Tracy Blvd'
+    return chain, street
+
+def city_of(address):
+    """Pull the city out of a US street address, skipping suite lines, state, and ZIP."""
+    for part in reversed([p.strip() for p in address.split(',') if p.strip()]):
+        if re.fullmatch(r'[A-Z]{2}(\s+\d{5}(-\d{4})?)?', part) or re.fullmatch(r'\d{5}(-\d{4})?', part): continue
+        if re.match(r'^(ste|suite|unit|apt|#)', part, re.I) or re.match(r'^\d', part): continue
+        return part
+    return ''
+
+def build_script(lead, caller='', trade=''):
+    """Assemble a NEPQ call script from one lead's fields. Pure text; no network.
+
+    Every blank comes from stored data, so the script re-derives itself as the lead
+    is corrected. Unknown values become visible [BRACKETS] rather than silent gaps.
+    """
+    chain, street = store_label(lead['store'] or '')
+    city = city_of(lead['address'] or '') or '[CITY]'
+    first = (lead['decision_maker'] or '').split()[0] if (lead['decision_maker'] or '').strip() else '[OWNER]'
+    one = trade or TRADE_NOUNS.get(lead['category'] or '', (lead['category'] or 'business').lower())
+    many = one + ('' if one.endswith('s') else 's')
+    at_store = f'{chain} on {street}' if street else (chain or '[STORE]')
+    me = caller or '[YOUR NAME]'
+    research = '\n'.join(f'  {line}' for line in [lead['about'] or '', lead['notes'] or ''] if line.strip())
+    return f'''{lead['business_name']}  ·  {one}  ·  {city}
+{'='*64}
+
+GATEKEEPER  (low, relaxed, peer-to-peer)
+  "Hey, good morning... I'm looking for {first} — are they around today?"
+
+  If asked what it's regarding:
+  "Yeah, it's regarding the local business sponsorship for the {at_store}
+   cart project... I just needed to see if {first} is the one handling local
+   community branding, or if someone else does that?"
+
+OPENER  (familiar and calm; the ... are real pauses)
+  "Hey {first}? ... it's {me}... with the community sponsorship project
+   over at the {at_store}.
+   Look, I know you weren't expecting my call today, and to be completely
+   upfront... I'm not even sure if what we're rolling out is a fit for what
+   you're doing right now...
+   Do you have about 30 seconds for me to tell you why I called, and then you
+   can tell me whether it makes sense to keep chatting or hang up?"
+
+THE HOOK  (low, conversational, detached)
+  "So we're finalizing the new cart directory and child seat panels for the
+   {at_store}.
+   Typically local {many} in {city} tell us they're tired of burning money on
+   digital clicks or mailers that get tossed before anyone reads them...
+   ...whereas with this you get exclusive category visibility in front of
+   20,000+ local families who shop that store 2 to 3 times every week.
+   The reason I reached out to you specifically is that we restrict each store
+   to just ONE {one}, and we haven't locked in our partner for this store yet.
+   I was curious... are you guys even taking on more local business in {city}
+   right now, or are your hands pretty full?"
+
+WHAT I KNOW ABOUT THEM
+{research or '  (No research yet — fill in About and General notes on this lead.)'}
+
+THE ASK  (detached, matter-of-fact)
+  "Rather than trying to explain visual layouts over the phone while you're
+   busy running your day... would you be completely opposed to taking 5 or 10
+   minutes this week just to look at the store mock-ups and the foot-traffic
+   breakdown? If it's not a fit, no hard feelings — we'll just open the
+   category to another business in town.
+   Would Thursday morning around 10:00 hurt, or would Friday afternoon be better?"
+
+OBJECTIONS
+  "Not interested."
+    "Totally understand. Just so I'm not bothering you in the future — when you
+     say not interested, is that because you're already booked out with enough
+     local customers, or you just haven't seen how supermarket cart branding
+     actually works for {a_or_an(one)}?"
+
+  "Just send me an email."
+    "I can definitely send something over. The challenge is, without seeing the
+     actual store layout and which panels are still unreserved, an email just
+     looks like generic numbers. Would you be opposed to a quick 5 minutes, or
+     letting me drop off a sample printout? If it's a no, just tell me."
+
+  "We already do advertising."
+    "That makes sense, most established businesses do. Out of curiosity, are you
+     mostly digital, or do you have a way right now to reach every family within
+     three miles of the {at_store} every week?"
+
+  "How much does it cost?"
+    "It averages around $25 to $50 a week, less than a cup of coffee a day. But
+     honestly, even at five dollars, if it doesn't bring you at least a client or
+     two a month it isn't worth a dime. Would it hurt to look at the store's
+     traffic numbers first and see if they even make sense for you?"
+'''
+
+def a_or_an(word):
+    return ('an ' if word[:1].lower() in 'aeiou' else 'a ') + word if word else 'a business'
+
 class Database:
     def __init__(self, path):
         self.path = Path(path)
@@ -81,16 +195,39 @@ class Database:
           outcome TEXT NOT NULL, notes TEXT DEFAULT '');
         CREATE INDEX IF NOT EXISTS calls_lead ON calls(lead_id);
         CREATE INDEX IF NOT EXISTS calls_at ON calls(at);
+        CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT DEFAULT '');
         ''')
+        # CREATE TABLE IF NOT EXISTS never adds columns, so existing databases need this.
+        existing = {row['name'] for row in self.con.execute('PRAGMA table_info(leads)')}
+        for column in ['script','script_edited']:
+            if column not in existing: self.con.execute(f"ALTER TABLE leads ADD COLUMN {column} TEXT DEFAULT ''")
         self.con.commit()
+    def setting(self, key, default=''):
+        row = self.con.execute('SELECT value FROM settings WHERE key=?',(key,)).fetchone()
+        return row['value'] if row and row['value'] else default
+    def set_setting(self, key, value):
+        with self.con:
+            self.con.execute('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',(key,str(value).strip()))
+    def script_for(self, lead_id):
+        """Stored script if there is one, otherwise a script derived from the lead's fields."""
+        lead = self.lead(lead_id)
+        if (lead['script'] or '').strip(): return lead['script'], bool(lead['script_edited'])
+        return build_script(lead,self.setting('caller_name')), False
+    def set_script(self, lead_id, text, force=False):
+        """Store a researched script. Refuses to clobber a script the user has edited."""
+        if self.lead(lead_id)['script_edited'] and not force: return False
+        with self.con: self.con.execute('UPDATE leads SET script=? WHERE id=?',(text.strip(),lead_id))
+        return True
     def save_lead(self, values, lead_id=None):
         if not values.get('business_name','').strip() or not values.get('phone','').strip():
             raise ValueError('Business name and phone number are required.')
-        allowed = FIELDS + ['status','callback','appointment']
+        allowed = FIELDS + ['status','callback','appointment','script']
         clean = {k:str(v).strip() for k,v in values.items() if k in allowed}
         if 'category' in clean: clean['category'] = category_name(clean['category'])
         with self.con:
             if lead_id:
+                if 'script' in clean and clean['script'] != (self.lead(lead_id)['script'] or ''):
+                    clean['script_edited'] = now()
                 self.con.execute('UPDATE leads SET '+','.join(k+'=?' for k in clean)+' WHERE id=?', [*clean.values(), lead_id])
             else:
                 clean['created'] = now()
@@ -196,6 +333,10 @@ class App:
         toolbar = ttk.Frame(frame); toolbar.pack(fill='x')
         for name, action in [('Add lead',lambda:self.card()),('Import spreadsheet',self.import_file),('Scripts & references',self.references),('Backup database',self.backup),('Export call log',self.export_calls)]:
             ttk.Button(toolbar,text=name,command=action,style='Primary.TButton' if name=='Add lead' else 'TButton').pack(side='left',padx=(0,6))
+        self.caller = tk.StringVar(value=self.db.setting('caller_name'))
+        ttk.Entry(toolbar,textvariable=self.caller,width=16).pack(side='right')
+        ttk.Label(toolbar,text='Name you give on calls:').pack(side='right',padx=(0,6))
+        self.caller.trace_add('write',lambda *a:self.db.set_setting('caller_name',self.caller.get()))
         types = ttk.Frame(frame); types.pack(fill='x',pady=(8,0))
         ttk.Button(types,text='Leads by business type',command=self.business_totals).pack(side='left')
         self.type_summary = ttk.Label(types,style='Muted.TLabel'); self.type_summary.pack(side='left',padx=12)
@@ -316,7 +457,8 @@ class App:
         count = ttk.Label(frame,text=f"{row.get('phone','')}   |   {len(self.db.calls(lead_id)) if lead_id else 0} calls logged"); count.pack(anchor='w',pady=(0,10))
         tabs = ttk.Notebook(frame); tabs.pack(fill='both',expand=True)
         details = ttk.Frame(tabs,padding=12); about = ttk.Frame(tabs,padding=12); log = ttk.Frame(tabs,padding=12)
-        tabs.add(details,text='Contact & schedule'); tabs.add(about,text='About & notes'); tabs.add(log,text='Call history')
+        script = ttk.Frame(tabs,padding=12)
+        tabs.add(details,text='Contact & schedule'); tabs.add(script,text='Call script'); tabs.add(about,text='About & notes'); tabs.add(log,text='Call history')
         values = {}; texts = {}
         for i,(key,label) in enumerate(zip(FIELDS[:7],LABELS[:7])):
             ttk.Label(details,text=label).grid(row=i,column=0,sticky='w',pady=5)
@@ -338,6 +480,16 @@ class App:
         values['category'].trace_add('write',explain_category); explain_category()
         for key,label in [('about','About this business — services, differentiators, useful call context'),('notes','General notes — separate from individual call notes')]:
             ttk.Label(about,text=label).pack(anchor='w'); text = ScrolledText(about,height=6,wrap='word',font=('Segoe UI',11)); text.pack(fill='both',expand=True,pady=(4,10)); text.insert('1.0',row.get(key,'')); texts[key]=text
+        script_note = ttk.Label(script,wraplength=740,style='Muted.TLabel'); script_note.pack(anchor='w')
+        script_box = ScrolledText(script,height=14,wrap='word',font=('Segoe UI',11)); script_box.pack(fill='both',expand=True,pady=(4,6))
+        texts['script'] = script_box; script_loaded = ['']
+        def load_script(regenerate=False):
+            if not lead_id:
+                script_note.configure(text='Save this lead first. The script builds itself from business type, store, city, and decision maker.'); return
+            text,edited = (build_script(self.db.lead(lead_id),self.caller.get()),False) if regenerate else self.db.script_for(lead_id)
+            script_box.delete('1.0','end'); script_box.insert('1.0',text); script_loaded[0] = text
+            script_note.configure(text='Your edited version. Research will not overwrite it.' if edited else 'Built from this lead. Edit it and it becomes yours.')
+        ttk.Button(script,text='Rebuild from lead fields',command=lambda:load_script(True)).pack(anchor='w')
         history = ScrolledText(log,height=10,wrap='word',font=('Segoe UI',11)); history.pack(fill='both',expand=True)
         def render_history():
             calls = self.db.calls(lead_id) if lead_id else []
@@ -345,6 +497,7 @@ class App:
             history.insert('end','\n\n'.join(f"{display_date(c['at'])}  ·  {c['outcome']}\n{c['notes'] or '(No call notes)'}" for c in calls) or 'No calls logged yet. Saving lead details does not count as a dial.')
             history.configure(state='disabled'); count.configure(text=f"{values['phone'].get()}   |   {len(calls)} calls logged")
         def snapshot(): return {**{k:v.get() for k,v in values.items()},**{k:t.get('1.0','end-1c') for k,t in texts.items()}}
+        load_script()  # must precede the baseline, or the card opens looking unsaved
         saved = snapshot()
         def close():
             if snapshot()!=saved and not messagebox.askyesno('Unsaved changes','Discard your unsaved lead changes?',parent=win): return
@@ -353,7 +506,9 @@ class App:
             nonlocal lead_id,saved
             try:
                 data=snapshot(); data['callback']=valid_date(data['callback']); data['appointment']=valid_date(data['appointment'])
-                lead_id=self.db.save_lead(data,lead_id); saved=snapshot(); title.configure(text=data['business_name']); self.refresh(); status.configure(text='Lead saved.'); call_button.configure(state='normal'); dial_button.configure(state='normal'); render_history()
+                # An untouched generated script must not be stored as a hand edit.
+                if data.get('script','').strip()==script_loaded[0].strip(): data.pop('script',None)
+                lead_id=self.db.save_lead(data,lead_id); load_script(); saved=snapshot(); title.configure(text=data['business_name']); self.refresh(); status.configure(text='Lead saved.'); call_button.configure(state='normal'); dial_button.configure(state='normal'); render_history()
                 return True
             except (ValueError,sqlite3.Error) as e: messagebox.showerror('Could not save lead',str(e),parent=win); return False
         def open_call(dial=False):
@@ -381,10 +536,15 @@ class App:
     def call_dialog(self,parent,lead_id,done,required=False):
         lead=self.db.lead(lead_id)
         if lead['status']=='Do not call': messagebox.showinfo('Do not call','This lead is marked Do not call.',parent=parent); return
-        win=self.window('Log this call' if required else 'Log a call',740,570); win.transient(parent)
+        win=self.window('Log this call' if required else 'Log a call',*((900,790) if required else (740,570))); win.transient(parent)
         frame=ttk.Frame(win,padding=20); frame.pack(fill='both',expand=True)
         ttk.Label(frame,text=lead['business_name'],style='Title.TLabel').pack(anchor='w')
-        if required: ttk.Label(frame,text=f"{lead['phone']} is loaded in TextNow. Press the dial icon there, then record the outcome here before moving to the next lead.",wraplength=680).pack(anchor='w',pady=(2,0))
+        if required:
+            ttk.Label(frame,text=f"{lead['phone']} is loaded in TextNow. Press the dial icon there, then record the outcome here before moving to the next lead.",wraplength=840).pack(anchor='w',pady=(2,0))
+            # The card is unreachable behind this modal, and Ctrl+D opens no card at all,
+            # so the script has to live here or it is not readable during the call.
+            script=ScrolledText(frame,height=13,wrap='word',font=('Segoe UI',11)); script.pack(fill='both',expand=True,pady=(8,4))
+            script.insert('1.0',self.db.script_for(lead_id)[0]); script.configure(state='disabled')
         vars={}
         fields=[('at','Call date & time',display_date(now())),('outcome','Outcome','No answer'),('callback','Next callback (optional)',display_date(lead['callback']) or (datetime.now()+timedelta(days=1)).strftime('%Y-%m-%d %H:%M')),('appointment','Appointment date & time (if booked)',display_date(lead['appointment']))]
         for key,label,value in fields:

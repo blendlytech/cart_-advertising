@@ -1,7 +1,9 @@
+import sqlite3
 import tempfile
 import unittest
 import tkinter as tk
 from tkinter import ttk
+from tkinter.scrolledtext import ScrolledText
 from pathlib import Path
 from datetime import datetime
 import zipfile
@@ -76,8 +78,13 @@ class CRMTests(unittest.TestCase):
             app=App(root,self.db);app.card(lead_id);root.update()
             card=next(widget for widget in root.winfo_children() if isinstance(widget,tk.Toplevel))
             buttons=self.buttons_in(card)
-            self.assertEqual({button.cget('text') for button in buttons},{'Save lead','Call with TextNow','Log a call','Close'})
-            for button in buttons:self.assertGreaterEqual(button.winfo_height(),button.winfo_reqheight(),button.cget('text'))
+            self.assertEqual({button.cget('text') for button in buttons},{'Save lead','Call with TextNow','Log a call','Close','Rebuild from lead fields'})
+            for notebook in [w for w in self.widgets_in(card) if isinstance(w,ttk.Notebook)]:
+                for tab in notebook.tabs():
+                    notebook.select(tab);root.update()
+                    for button in buttons:
+                        if button.winfo_ismapped():
+                            self.assertGreaterEqual(button.winfo_height(),button.winfo_reqheight(),button.cget('text'))
         finally:
             root.destroy()
     def test_dial_uri_loads_ten_digits_and_refuses_anything_ambiguous(self):
@@ -85,12 +92,72 @@ class CRMTests(unittest.TestCase):
             self.assertEqual(dial_uri(value),'tel://2096407111',value)
         for value in ['(209) 640-7111 x204','209-640-7111 ext 3','640-7111','','n/a','(209) 640-7111 / (925) 667-0055']:
             self.assertIsNone(dial_uri(value),value)
-    def buttons_in(self,widget):
+    def test_generated_script_fills_every_slot_from_lead_fields(self):
+        lead_id=self.db.save_lead({'business_name':'Realta Homes','phone':'(209) 640-7111','category':'Realtors',
+            'decision_maker':'Juliana Lanier','store':'Save Mart #781 Schulte - 875 S Tracy Blvd, Tracy CA 95376',
+            'address':'793 S Tracy Blvd, Ste 105, Tracy, CA 95376','about':'Broker/Owner since 2005.'})
+        self.db.set_setting('caller_name','Clay')
+        text,edited=self.db.script_for(lead_id)
+        self.assertFalse(edited)
+        for expected in ['Juliana','Clay','Save Mart on Tracy Blvd','real estate agent','real estate agents in Tracy','Broker/Owner since 2005.']:
+            self.assertIn(expected,text,expected)
+        self.assertNotIn('[OWNER]',text);self.assertNotIn('[CITY]',text);self.assertNotIn('[YOUR NAME]',text)
+    def test_missing_fields_become_visible_brackets_not_silent_gaps(self):
+        lead_id=self.db.save_lead({'business_name':'Mystery Shop','phone':'(209) 640-7112'})
+        text,_=self.db.script_for(lead_id)
+        self.assertIn('[OWNER]',text);self.assertIn('[CITY]',text);self.assertIn('[YOUR NAME]',text)
+    def test_research_never_overwrites_a_hand_edited_script(self):
+        lead_id=self.db.save_lead({'business_name':'Alpha','phone':'(209) 640-7111','category':'Realtors'})
+        self.assertTrue(self.db.set_script(lead_id,'Researched version one'))
+        self.assertEqual(self.db.script_for(lead_id),('Researched version one',False))
+        self.db.save_lead({'business_name':'Alpha','phone':'(209) 640-7111','script':'My own wording'},lead_id)
+        text,edited=self.db.script_for(lead_id)
+        self.assertEqual(text,'My own wording');self.assertTrue(edited)
+        self.assertFalse(self.db.set_script(lead_id,'Researched version two'))
+        self.assertEqual(self.db.script_for(lead_id)[0],'My own wording')
+        self.assertTrue(self.db.set_script(lead_id,'Forced version',force=True))
+        self.assertEqual(self.db.script_for(lead_id)[0],'Forced version')
+    def test_script_columns_are_added_to_an_existing_database(self):
+        path=self.base/'legacy.sqlite3'
+        old=sqlite3.connect(path)
+        old.executescript("CREATE TABLE leads (id INTEGER PRIMARY KEY, business_name TEXT NOT NULL, phone TEXT NOT NULL,"
+            "decision_maker TEXT DEFAULT '', category TEXT DEFAULT '', store TEXT DEFAULT '', address TEXT DEFAULT '',"
+            "website TEXT DEFAULT '', about TEXT DEFAULT '', notes TEXT DEFAULT '', status TEXT DEFAULT 'New',"
+            "callback TEXT DEFAULT '', appointment TEXT DEFAULT '', created TEXT NOT NULL);")
+        old.execute("INSERT INTO leads(business_name,phone,created) VALUES('Legacy','(209) 640-7111','2026-01-01T00:00:00')")
+        old.commit();old.close()
+        migrated=Database(path)
+        columns={r['name'] for r in migrated.con.execute('PRAGMA table_info(leads)')}
+        self.assertIn('script',columns);self.assertIn('script_edited',columns)
+        self.assertEqual(migrated.lead(1)['business_name'],'Legacy')
+        self.assertTrue(migrated.set_script(1,'Kept'))
+        self.assertEqual(migrated.script_for(1)[0],'Kept')
+        migrated.con.close()
+    def test_opening_a_card_shows_the_script_without_looking_unsaved(self):
+        lead_id=self.db.save_lead({'business_name':'Realta Homes','phone':'(209) 640-7111','category':'Realtors',
+            'decision_maker':'Juliana Lanier','store':'Save Mart #781 - 875 S Tracy Blvd, Tracy CA 95376',
+            'address':'793 S Tracy Blvd, Tracy, CA 95376'})
+        root=tk.Tk()
+        try:
+            app=App(root,self.db);app.card(lead_id);root.update()
+            card=next(w for w in root.winfo_children() if isinstance(w,tk.Toplevel))
+            boxes=[w for w in self.widgets_in(card) if isinstance(w,ScrolledText)]
+            filled=[b for b in boxes if 'community sponsorship project' in b.get('1.0','end-1c')]
+            self.assertEqual(len(filled),1,'exactly one box should hold the generated script')
+            # Closing must not prompt about unsaved changes, which means no dialog blocks it.
+            self.press(card,'Close');root.update()
+            self.assertEqual([w for w in root.winfo_children() if isinstance(w,tk.Toplevel)],[])
+            self.assertEqual(self.db.lead(lead_id)['script'],'','an untouched script is never stored')
+            self.assertEqual(self.db.lead(lead_id)['script_edited'],'')
+        finally:
+            root.destroy()
+    def widgets_in(self,widget):
         stack=[widget];found=[]
         while stack:
-            current=stack.pop();stack.extend(current.winfo_children())
-            if isinstance(current,ttk.Button):found.append(current)
+            current=stack.pop();stack.extend(current.winfo_children());found.append(current)
         return found
+    def buttons_in(self,widget):
+        return [w for w in self.widgets_in(widget) if isinstance(w,ttk.Button)]
     def press(self,widget,label):
         next(b for b in self.buttons_in(widget) if b.cget('text').startswith(label)).invoke()
     def test_dialed_call_hands_off_then_closes_the_card_and_keeps_selection(self):
