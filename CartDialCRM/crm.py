@@ -145,16 +145,24 @@ def build_script(lead, caller='', trade=''):
     at_store = f'{chain} on {street}' if street else (chain or '[STORE]')
     me = caller or '[YOUR NAME]'
     research = '\n'.join(f'  {line}' for line in [lead['about'] or '', lead['notes'] or ''] if line.strip())
-    return f'''{lead['business_name']}  ·  {one}  ·  {city}
-{'='*64}
+    # With no name, asking for "the owner" marks you as a cold caller. Ask who owns the
+    # decision instead: it is answerable by whoever picked up, and it hands you the name.
+    gatekeeper = f'''GATEKEEPER  (no name on file — get one before you pitch anything)
+  "Hey, good morning... who would I need to talk to about the local business
+   sponsorship for the {at_store} cart project? ... Is that the owner?"
 
-GATEKEEPER  (low, relaxed, peer-to-peer)
+  Write the name down and use it from here on. Read WHAT I KNOW ABOUT THEM below
+  first — it may name a person to ask for by name, which works far better.''' if first == '[OWNER]' else f'''GATEKEEPER  (low, relaxed, peer-to-peer)
   "Hey, good morning... I'm looking for {first} — are they around today?"
 
   If asked what it's regarding:
   "Yeah, it's regarding the local business sponsorship for the {at_store}
    cart project... I just needed to see if {first} is the one handling local
-   community branding, or if someone else does that?"
+   community branding, or if someone else does that?"'''
+    return f'''{lead['business_name']}  ·  {one}  ·  {city}
+{'='*64}
+
+{gatekeeper}
 
 OPENER  (familiar and calm; the ... are real pauses)
   "Hey {first}? ... it's {me}... with the community sponsorship project

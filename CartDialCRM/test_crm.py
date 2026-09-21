@@ -133,6 +133,18 @@ class CRMTests(unittest.TestCase):
         lead_id=self.db.save_lead({'business_name':'Mystery Shop','phone':'(209) 640-7112'})
         text,_=self.db.script_for(lead_id)
         self.assertIn('[OWNER]',text);self.assertIn('[CITY]',text);self.assertIn('[YOUR NAME]',text)
+    def test_nameless_lead_gets_a_name_discovery_gatekeeper_not_a_broken_one(self):
+        blank=self.db.save_lead({'business_name':'No Name Shop','phone':'(209) 640-7112','category':'Realtors',
+            'store':'Save Mart #781 - 875 S Tracy Blvd, Tracy CA','address':'1 Main St, Tracy, CA 95376'})
+        text=self.db.script_for(blank)[0]
+        self.assertIn('who would I need to talk to',text)
+        self.assertNotIn("I'm looking for [OWNER]",text)
+        named=self.db.save_lead({'business_name':'Named Shop','phone':'(209) 640-7113','category':'Realtors',
+            'decision_maker':'Susan Goulding','store':'Save Mart #781 - 875 S Tracy Blvd, Tracy CA',
+            'address':'1 Main St, Tracy, CA 95376'})
+        text=self.db.script_for(named)[0]
+        self.assertIn("I'm looking for Susan",text)
+        self.assertNotIn('who would I need to talk to',text)
     def test_research_never_overwrites_a_hand_edited_script(self):
         lead_id=self.db.save_lead({'business_name':'Alpha','phone':'(209) 640-7111','category':'Realtors'})
         self.assertTrue(self.db.set_script(lead_id,'Researched version one'))
