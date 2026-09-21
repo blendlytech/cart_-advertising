@@ -52,13 +52,16 @@ def phone_key(value):
     return digits[1:] if len(digits) == 11 and digits.startswith('1') else digits
 
 def dial_uri(value):
-    """Return a 'tel:' URI for the TextNow desktop app, or None to refuse the dial.
+    """Return a 'tel://' URI for the TextNow desktop app, or None to refuse the dial.
 
+    The double slash is required and must not be 'tidied' to 'tel:'. TextNow tests
+    the argument with includes('tel://'); when that fails it raises its window and
+    loads no number, which looks like the dial worked but silently did nothing.
     Only an unambiguous ten-digit number loads. Extensions, partial numbers, and
     blanks return None so the card warns instead of reaching a wrong line.
     """
     digits = phone_key(value)
-    return f'tel:+1{digits}' if len(digits) == 10 else None
+    return f'tel://{digits}' if len(digits) == 10 else None
 
 class Database:
     def __init__(self, path):

@@ -82,7 +82,7 @@ class CRMTests(unittest.TestCase):
             root.destroy()
     def test_dial_uri_loads_ten_digits_and_refuses_anything_ambiguous(self):
         for value in ['(209) 640-7111','1 (209) 640-7111','+1 209-640-7111','209.640.7111','2096407111']:
-            self.assertEqual(dial_uri(value),'tel:+12096407111',value)
+            self.assertEqual(dial_uri(value),'tel://2096407111',value)
         for value in ['(209) 640-7111 x204','209-640-7111 ext 3','640-7111','','n/a','(209) 640-7111 / (925) 667-0055']:
             self.assertIsNone(dial_uri(value),value)
     def buttons_in(self,widget):
@@ -103,7 +103,7 @@ class CRMTests(unittest.TestCase):
             app.card(lead_id);root.update()
             card=next(w for w in root.winfo_children() if isinstance(w,tk.Toplevel))
             self.press(card,'Call with TextNow');root.update()
-            self.assertEqual(dialed,['tel:+12096407111'])
+            self.assertEqual(dialed,['tel://2096407111'])
             dialog=next(w for w in root.winfo_children() if isinstance(w,tk.Toplevel) and w is not card)
             self.press(dialog,'Save call');root.update()
             self.assertEqual(len(self.db.calls(lead_id)),1)
@@ -118,7 +118,7 @@ class CRMTests(unittest.TestCase):
         try:
             app=App(root,self.db);app.tree.selection_set(str(lead_id));root.update()
             app.dial_selected();root.update()
-            self.assertEqual(dialed,['tel:+12096407111'])
+            self.assertEqual(dialed,['tel://2096407111'])
             toplevels=[w for w in root.winfo_children() if isinstance(w,tk.Toplevel)]
             self.assertEqual(len(toplevels),1)
             self.assertEqual(toplevels[0].title(),'Log this call')
