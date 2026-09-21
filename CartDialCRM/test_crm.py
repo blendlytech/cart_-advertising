@@ -5,7 +5,8 @@ from tkinter import ttk
 from pathlib import Path
 from datetime import datetime
 import zipfile
-from crm import App,Database,read_sheet,valid_date,CATEGORIES
+import crm
+from crm import App,Database,read_sheet,valid_date,dial_uri,CATEGORIES
 
 class CRMTests(unittest.TestCase):
     def setUp(self):
@@ -74,12 +75,79 @@ class CRMTests(unittest.TestCase):
         try:
             app=App(root,self.db);app.card(lead_id);root.update()
             card=next(widget for widget in root.winfo_children() if isinstance(widget,tk.Toplevel))
-            stack=[card];buttons=[]
-            while stack:
-                widget=stack.pop();stack.extend(widget.winfo_children())
-                if isinstance(widget,ttk.Button):buttons.append(widget)
-            self.assertEqual({button.cget('text') for button in buttons},{'Save lead','Log a call','Close'})
+            buttons=self.buttons_in(card)
+            self.assertEqual({button.cget('text') for button in buttons},{'Save lead','Call with TextNow','Log a call','Close'})
             for button in buttons:self.assertGreaterEqual(button.winfo_height(),button.winfo_reqheight(),button.cget('text'))
+        finally:
+            root.destroy()
+    def test_dial_uri_loads_ten_digits_and_refuses_anything_ambiguous(self):
+        for value in ['(209) 640-7111','1 (209) 640-7111','+1 209-640-7111','209.640.7111','2096407111']:
+            self.assertEqual(dial_uri(value),'tel:+12096407111',value)
+        for value in ['(209) 640-7111 x204','209-640-7111 ext 3','640-7111','','n/a','(209) 640-7111 / (925) 667-0055']:
+            self.assertIsNone(dial_uri(value),value)
+    def buttons_in(self,widget):
+        stack=[widget];found=[]
+        while stack:
+            current=stack.pop();stack.extend(current.winfo_children())
+            if isinstance(current,ttk.Button):found.append(current)
+        return found
+    def press(self,widget,label):
+        next(b for b in self.buttons_in(widget) if b.cget('text').startswith(label)).invoke()
+    def test_dialed_call_hands_off_then_closes_the_card_and_keeps_selection(self):
+        lead_id=self.db.save_lead({'business_name':'Alpha','phone':'(209) 640-7111'})
+        self.db.save_lead({'business_name':'Beta','phone':'(925) 667-0055'})
+        root=tk.Tk();dialed=[];original=crm.webbrowser.open
+        crm.webbrowser.open=lambda uri:(dialed.append(uri),True)[1]
+        try:
+            app=App(root,self.db);app.tree.selection_set(str(lead_id));root.update()
+            app.card(lead_id);root.update()
+            card=next(w for w in root.winfo_children() if isinstance(w,tk.Toplevel))
+            self.press(card,'Call with TextNow');root.update()
+            self.assertEqual(dialed,['tel:+12096407111'])
+            dialog=next(w for w in root.winfo_children() if isinstance(w,tk.Toplevel) and w is not card)
+            self.press(dialog,'Save call');root.update()
+            self.assertEqual(len(self.db.calls(lead_id)),1)
+            self.assertEqual([w for w in root.winfo_children() if isinstance(w,tk.Toplevel)],[])
+            self.assertEqual(app.tree.selection(),(str(lead_id),))
+        finally:
+            crm.webbrowser.open=original;root.destroy()
+    def test_ctrl_d_dials_selected_row_without_opening_the_card(self):
+        lead_id=self.db.save_lead({'business_name':'Alpha','phone':'(209) 640-7111'})
+        root=tk.Tk();dialed=[];original=crm.webbrowser.open
+        crm.webbrowser.open=lambda uri:(dialed.append(uri),True)[1]
+        try:
+            app=App(root,self.db);app.tree.selection_set(str(lead_id));root.update()
+            app.dial_selected();root.update()
+            self.assertEqual(dialed,['tel:+12096407111'])
+            toplevels=[w for w in root.winfo_children() if isinstance(w,tk.Toplevel)]
+            self.assertEqual(len(toplevels),1)
+            self.assertEqual(toplevels[0].title(),'Log this call')
+            self.press(toplevels[0],'Save call');root.update()
+            self.assertEqual(len(self.db.calls(lead_id)),1)
+            self.assertEqual(app.tree.selection(),(str(lead_id),))
+        finally:
+            crm.webbrowser.open=original;root.destroy()
+    def test_dial_selected_refuses_do_not_call_and_leaves_the_log_empty(self):
+        lead_id=self.db.save_lead({'business_name':'Alpha','phone':'(209) 640-7111','status':'Do not call'})
+        root=tk.Tk()
+        try:
+            app=App(root,self.db);app.tree.selection_set(str(lead_id));root.update()
+            self.assertFalse(app.dial_lead(root,lead_id))
+            self.assertEqual(self.db.calls(lead_id),[])
+        finally:
+            root.destroy()
+    def test_dialed_disposition_cannot_be_dismissed_without_a_choice(self):
+        lead_id=self.db.save_lead({'business_name':'Alpha','phone':'(209) 640-7111'})
+        root=tk.Tk()
+        try:
+            app=App(root,self.db)
+            app.call_dialog(root,lead_id,lambda:None,required=True);root.update()
+            dialog=next(w for w in root.winfo_children() if isinstance(w,tk.Toplevel))
+            labels={button.cget('text') for button in self.buttons_in(dialog)}
+            self.assertIn('Save call · count 1 dial',labels)
+            self.assertIn('No call placed',labels)
+            self.assertNotIn('Cancel',labels)
+            self.assertEqual(self.db.calls(lead_id),[])
         finally:
             root.destroy()
 

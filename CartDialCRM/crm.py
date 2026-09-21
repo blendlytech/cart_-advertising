@@ -4,6 +4,7 @@ import io
 import os
 import re
 import sqlite3
+import webbrowser
 import zipfile
 import posixpath
 from pathlib import Path
@@ -49,6 +50,15 @@ def display_date(value):
 def phone_key(value):
     digits = re.sub(r'\D', '', value)
     return digits[1:] if len(digits) == 11 and digits.startswith('1') else digits
+
+def dial_uri(value):
+    """Return a 'tel:' URI for the TextNow desktop app, or None to refuse the dial.
+
+    Only an unambiguous ten-digit number loads. Extensions, partial numbers, and
+    blanks return None so the card warns instead of reaching a wrong line.
+    """
+    digits = phone_key(value)
+    return f'tel:+1{digits}' if len(digits) == 10 else None
 
 class Database:
     def __init__(self, path):
@@ -227,6 +237,7 @@ class App:
         self.previous = ttk.Button(paging,text='Previous 200',command=lambda:self.change_page(-1)); self.previous.pack(side='left')
         self.next_page = ttk.Button(paging,text='Next 200',command=lambda:self.change_page(1)); self.next_page.pack(side='left',padx=6)
         self.tree.bind('<ButtonRelease-1>',self.click_lead); self.tree.bind('<Return>',lambda e:self.open_selected())
+        self.tree.bind('<Control-d>',lambda e:self.dial_selected())
         self.feedback = ttk.Label(frame,text='Import a spreadsheet or add your first lead. Click any lead to open its card.'); self.feedback.pack(anchor='w',pady=10)
         root.report_callback_exception = lambda t,v,tb:messagebox.showerror('Could not complete action',str(v),parent=root)
         root.protocol('WM_DELETE_WINDOW',self.shutdown)
@@ -260,6 +271,7 @@ class App:
         rows = rows[:200]
         self.previous.configure(state='normal' if self.page else 'disabled')
         self.next_page.configure(state='normal' if has_next else 'disabled')
+        selected = self.tree.selection()
         self.tree.delete(*self.tree.get_children())
         for index,r in enumerate(rows):
             tags=['stripe'] if index%2 else []
@@ -267,12 +279,30 @@ class App:
             elif r['status']=='Callback':tags.append('callback')
             elif r['status']=='Do not call':tags.append('stopped')
             self.tree.insert('', 'end',iid=str(r['id']),values=(r['business_name'],r['phone'],r['decision_maker'],r['call_count'],r['status'],display_date(r['callback'])),tags=tags)
-        self.feedback.configure(text=f'Leads {self.page*200+1}–{self.page*200+len(rows)}. Click a row or press Enter to open its card.' if rows else 'No leads found. Add a lead, import a spreadsheet, or clear your filters.')
+        kept = [iid for iid in selected if self.tree.exists(iid)]
+        if kept: self.tree.selection_set(kept); self.tree.see(kept[0])
+        self.feedback.configure(text=f'Leads {self.page*200+1}–{self.page*200+len(rows)}. Enter opens a lead card; Ctrl+D dials the selected lead with TextNow.' if rows else 'No leads found. Add a lead, import a spreadsheet, or clear your filters.')
     def click_lead(self,event):
         row = self.tree.identify_row(event.y)
         if row and self.tree.identify_region(event.x,event.y) in ('cell','tree'): self.card(int(row))
     def open_selected(self):
         if self.tree.selection(): self.card(int(self.tree.selection()[0]))
+    def dial_lead(self,parent,lead_id,phone=None):
+        lead=self.db.lead(lead_id)
+        if lead['status']=='Do not call':
+            messagebox.showinfo('Do not call','This lead is marked Do not call. Nothing was dialed.',parent=parent); return False
+        number=lead['phone'] if phone is None else phone
+        uri=dial_uri(number)
+        if not uri:
+            messagebox.showwarning('Cannot dial',f"{number or 'This lead'} is not a number TextNow can dial. Correct the phone number, or use Log a call to record the attempt by hand.",parent=parent); return False
+        webbrowser.open(uri); return True
+    def dial_selected(self):
+        if not self.tree.selection():
+            self.feedback.configure(text='Select a lead first, then press Ctrl+D to dial it with TextNow.'); return
+        lead_id=int(self.tree.selection()[0])
+        if not self.dial_lead(self.root,lead_id): return
+        name=self.db.lead(lead_id)['business_name']
+        self.call_dialog(self.root,lead_id,lambda:(self.refresh(),self.feedback.configure(text=f'Call logged for {name}. Select the next lead and press Ctrl+D.')),required=True)
     def window(self,title,width=840,height=700):
         win = tk.Toplevel(self.root); win.title(title); win.geometry(f'{width}x{height}'); win.minsize(720,620); win.transient(self.root); win.grab_set()
         return win
@@ -320,31 +350,38 @@ class App:
             nonlocal lead_id,saved
             try:
                 data=snapshot(); data['callback']=valid_date(data['callback']); data['appointment']=valid_date(data['appointment'])
-                lead_id=self.db.save_lead(data,lead_id); saved=snapshot(); title.configure(text=data['business_name']); self.refresh(); status.configure(text='Lead saved.'); call_button.configure(state='normal'); render_history()
+                lead_id=self.db.save_lead(data,lead_id); saved=snapshot(); title.configure(text=data['business_name']); self.refresh(); status.configure(text='Lead saved.'); call_button.configure(state='normal'); dial_button.configure(state='normal'); render_history()
                 return True
             except (ValueError,sqlite3.Error) as e: messagebox.showerror('Could not save lead',str(e),parent=win); return False
-        def open_call():
+        def open_call(dial=False):
             if snapshot()!=saved:
                 if not messagebox.askyesno('Save lead changes','Save your lead changes before logging this call?',parent=win): return
                 if not save(): return
-            self.call_dialog(win,lead_id,lambda:after_call())
-        def after_call():
+            if dial and not self.dial_lead(win,lead_id,values['phone'].get()): return
+            self.call_dialog(win,lead_id,lambda:after_call(dial),required=dial)
+        def after_call(dialed=False):
             nonlocal saved
             fresh=self.db.lead(lead_id)
             for k in ['status','callback','appointment']: values[k].set(display_date(fresh[k]) if k!='status' else fresh[k])
-            saved=snapshot(); render_history(); self.refresh(); tabs.select(log); status.configure(text='Call logged. Dial totals updated.')
+            saved=snapshot(); render_history(); self.refresh()
+            if dialed:
+                win.destroy(); self.tree.focus_set()
+                self.feedback.configure(text=f"Call logged for {fresh['business_name']}. Select the next lead and press Ctrl+D."); return
+            tabs.select(log); status.configure(text='Call logged. Dial totals updated.')
         buttons=ttk.Frame(frame); buttons.pack(fill='x',pady=(12,0))
         ttk.Button(buttons,text='Save lead',style='Primary.TButton',command=save).pack(side='left')
-        call_button=ttk.Button(buttons,text='Log a call',style='Navy.TButton',command=open_call,state='normal' if lead_id else 'disabled'); call_button.pack(side='left',padx=8)
+        dial_button=ttk.Button(buttons,text='Call with TextNow',style='Navy.TButton',command=lambda:open_call(True),state='normal' if lead_id else 'disabled'); dial_button.pack(side='left',padx=8)
+        call_button=ttk.Button(buttons,text='Log a call',style='Navy.TButton',command=open_call,state='normal' if lead_id else 'disabled'); call_button.pack(side='left')
         ttk.Button(buttons,text='Close',command=close).pack(side='right')
-        status=ttk.Label(frame,text='Save the lead before logging a call.' if not lead_id else 'Each saved call counts as one dial.'); status.pack(anchor='w',pady=(8,0))
+        status=ttk.Label(frame,text='Save the lead before calling.' if not lead_id else 'Call with TextNow opens the dialer and this call form together. Only a saved call counts as a dial.'); status.pack(anchor='w',pady=(8,0))
         win.protocol('WM_DELETE_WINDOW',close); win.bind('<Escape>',lambda e:close()); render_history()
-    def call_dialog(self,parent,lead_id,done):
+    def call_dialog(self,parent,lead_id,done,required=False):
         lead=self.db.lead(lead_id)
         if lead['status']=='Do not call': messagebox.showinfo('Do not call','This lead is marked Do not call.',parent=parent); return
-        win=self.window('Log a call',740,570); win.transient(parent)
+        win=self.window('Log this call' if required else 'Log a call',740,570); win.transient(parent)
         frame=ttk.Frame(win,padding=20); frame.pack(fill='both',expand=True)
         ttk.Label(frame,text=lead['business_name'],style='Title.TLabel').pack(anchor='w')
+        if required: ttk.Label(frame,text=f"{lead['phone']} is loaded in TextNow. Press the dial icon there, then record the outcome here before moving to the next lead.",wraplength=680).pack(anchor='w',pady=(2,0))
         vars={}
         fields=[('at','Call date & time',display_date(now())),('outcome','Outcome','No answer'),('callback','Next callback (optional)',display_date(lead['callback']) or (datetime.now()+timedelta(days=1)).strftime('%Y-%m-%d %H:%M')),('appointment','Appointment date & time (if booked)',display_date(lead['appointment']))]
         for key,label,value in fields:
@@ -353,18 +390,24 @@ class App:
         ttk.Label(frame,text='Dates: YYYY-MM-DD HH:MM. Clear callback if no follow-up is needed.').pack(anchor='w',pady=6)
         ttk.Label(frame,text='Notes from this call').pack(anchor='w'); notes=ScrolledText(frame,height=5,wrap='word',font=('Segoe UI',11)); notes.pack(fill='both',expand=True)
         initial={k:v.get() for k,v in vars.items()}
+        def restore():
+            win.destroy()
+            if parent is self.root: self.tree.focus_set()
+            else: parent.grab_set()
         def close():
-            if (any(v.get()!=initial[k] for k,v in vars.items()) or notes.get('1.0','end-1c')) and not messagebox.askyesno('Unsaved call','Discard this unsaved call?',parent=win): return
-            win.destroy(); parent.grab_set()
+            if required:
+                if not messagebox.askyesno('No call placed',f"Close without recording an outcome for {lead['business_name']}?\n\nChoose No to go back and log it. Nothing is saved and this dial is not counted.",icon='warning',default='no',parent=win): return
+            elif (any(v.get()!=initial[k] for k,v in vars.items()) or notes.get('1.0','end-1c')) and not messagebox.askyesno('Unsaved call','Discard this unsaved call?',parent=win): return
+            restore()
         def commit():
             try:
                 at=valid_date(vars['at'].get())
                 if not at: raise ValueError('Call date and time are required.')
                 self.db.log_call(lead_id,at,vars['outcome'].get(),notes.get('1.0','end-1c'),valid_date(vars['callback'].get()),valid_date(vars['appointment'].get()))
             except (ValueError,sqlite3.Error) as e: messagebox.showerror('Could not log call',str(e),parent=win); return
-            win.destroy(); parent.grab_set(); done()
+            restore(); done()
         buttons=ttk.Frame(frame); buttons.pack(fill='x',pady=12)
-        ttk.Button(buttons,text='Save call · count 1 dial',style='Primary.TButton',command=commit).pack(side='left'); ttk.Button(buttons,text='Cancel',command=close).pack(side='right')
+        ttk.Button(buttons,text='Save call · count 1 dial',style='Primary.TButton',command=commit).pack(side='left'); ttk.Button(buttons,text='No call placed' if required else 'Cancel',command=close).pack(side='right')
         win.protocol('WM_DELETE_WINDOW',close); win.bind('<Escape>',lambda e:close())
     def import_file(self):
         path=filedialog.askopenfilename(title='Import leads',filetypes=[('Spreadsheets','*.csv *.xlsx')],parent=self.root)
