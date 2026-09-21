@@ -34,6 +34,45 @@ TRADE_NOUNS = {
     'Restaurants and Pizza': 'restaurant',
     'Chiropractors and Therapeutic Massage Studios': 'chiropractor',
 }
+# Some categories hold trades that are not interchangeable on a call: every lead filed
+# under 'Doctors and Urgent Care Clinics' is actually a dental practice, and telling a
+# dentist we reserve one urgent care clinic ends the call. Where a business names its own
+# trade, that wins. Only categories that genuinely mix trades are listed, because
+# narrowing the noun also narrows the exclusivity being offered.
+TRADE_HINTS = {
+    'Doctors and Urgent Care Clinics': [('dental','dentist'),('dentist','dentist'),('dds','dentist'),
+        ('orthodon','orthodontist'),('urgent care','urgent care clinic'),('optom','optometrist'),
+        ('pediatric','pediatrician'),('derma','dermatologist')],
+    'Construction & Home Services': [('roof','roofer'),('plumb','plumber'),('electric','electrician'),
+        ('landscap','landscaper'),('hvac','heating and air contractor'),('paint','painter'),
+        ('pest','pest control company')],
+    'Spas and Salons': [('barber','barber shop'),('nail','nail salon')],
+    'Pet Grooming and Boarding': [('veterinar','veterinarian'),('boarding','pet boarding kennel')],
+    'Realtors': [('property manag','property manager')],
+}
+
+def greeting_name(decision_maker):
+    """What you actually say at "Hey ___?".
+
+    Taking the first word breaks on titles: 'Dr. William Do' becomes 'Dr.'. A titled
+    contact gets title plus surname, which is also what you would really say to a
+    dentist; everyone else gets the first name NEPQ asks for.
+    """
+    parts = (decision_maker or '').replace(',', ' ').split()
+    if not parts: return '[OWNER]'
+    title = parts[0].lower().rstrip('.')
+    if title in {'dr','doctor','mr','mrs','ms','miss','prof'}:
+        if len(parts) == 1: return '[OWNER]'  # a title with no name is nothing you can say
+        return f"{'Dr' if title in {'dr','doctor'} else parts[0].rstrip('.').title()}. {parts[-1]}"
+    return parts[0]
+
+def trade_noun(lead):
+    """What this business is called out loud, preferring its own name over its category."""
+    category = lead['category'] or ''
+    haystack = f"{lead['business_name']} {lead['about'] or ''}".lower()
+    for hint, noun in TRADE_HINTS.get(category, []):
+        if hint in haystack: return noun
+    return TRADE_NOUNS.get(category, category.lower() or 'business')
 ALIASES = {'business':'business_name','businessname':'business_name','company':'business_name','companyname':'business_name','phone':'phone','phonenumber':'phone','telephone':'phone','decisionmaker':'decision_maker','decisionmakername':'decision_maker','contact':'decision_maker','contactname':'decision_maker','name':'decision_maker','notes':'notes','note':'notes','about':'about','aboutthisbusiness':'about','businessinformation':'about','category':'category','businesscategory':'category','store':'store','storelocation':'store','address':'address','meetingaddress':'address','website':'website'}
 ALIASES.update({'businesstype':'category','typeofbusiness':'category'})
 
@@ -100,8 +139,8 @@ def build_script(lead, caller='', trade=''):
     """
     chain, street = store_label(lead['store'] or '')
     city = city_of(lead['address'] or '') or '[CITY]'
-    first = (lead['decision_maker'] or '').split()[0] if (lead['decision_maker'] or '').strip() else '[OWNER]'
-    one = trade or TRADE_NOUNS.get(lead['category'] or '', (lead['category'] or 'business').lower())
+    first = greeting_name(lead['decision_maker'])
+    one = trade or trade_noun(lead)
     many = one + ('' if one.endswith('s') else 's')
     at_store = f'{chain} on {street}' if street else (chain or '[STORE]')
     me = caller or '[YOUR NAME]'

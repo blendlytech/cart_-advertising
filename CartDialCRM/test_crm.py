@@ -8,7 +8,7 @@ from pathlib import Path
 from datetime import datetime
 import zipfile
 import crm
-from crm import App,Database,read_sheet,valid_date,dial_uri,CATEGORIES
+from crm import App,Database,read_sheet,valid_date,dial_uri,greeting_name,trade_noun,CATEGORIES
 
 class CRMTests(unittest.TestCase):
     def setUp(self):
@@ -102,6 +102,24 @@ class CRMTests(unittest.TestCase):
         for expected in ['Juliana','Clay','Save Mart on Tracy Blvd','real estate agent','real estate agents in Tracy','Broker/Owner since 2005.']:
             self.assertIn(expected,text,expected)
         self.assertNotIn('[OWNER]',text);self.assertNotIn('[CITY]',text);self.assertNotIn('[YOUR NAME]',text)
+    def test_greeting_name_handles_titles_and_bare_names(self):
+        self.assertEqual(greeting_name('Dr. William Do'),'Dr. Do')
+        self.assertEqual(greeting_name('Dr. Katherine D. Sanchez'),'Dr. Sanchez')
+        self.assertEqual(greeting_name('Carlos E. Sanchez, DDS'),'Carlos')
+        self.assertEqual(greeting_name('Juliana Lanier'),'Juliana')
+        self.assertEqual(greeting_name('Ryan'),'Ryan')
+        self.assertEqual(greeting_name(''),'[OWNER]')
+        self.assertEqual(greeting_name('Dr.'),'[OWNER]')
+    def test_trade_noun_prefers_the_business_over_a_mixed_category(self):
+        for name,category,expected in [
+                ('Tracy Family Dental Center','Doctors and Urgent Care Clinics','dentist'),
+                ('Sutter Urgent Care','Doctors and Urgent Care Clinics','urgent care clinic'),
+                ('Crown Key Realty property management','Realtors','property manager'),
+                ('Yvette Larson, Realtor','Realtors','real estate agent'),
+                ('Simpson Plumbing','Construction & Home Services','plumber'),
+                ('Valor & Virtue Barbershop','Spas and Salons','barber shop'),
+                ('Reflect Hair Studio','Spas and Salons','salon')]:
+            self.assertEqual(trade_noun({'business_name':name,'category':category,'about':''}),expected,name)
     def test_script_never_quotes_a_price(self):
         lead_id=self.db.save_lead({'business_name':'Alpha','phone':'(209) 640-7111','category':'Realtors'})
         text=self.db.script_for(lead_id)[0]
