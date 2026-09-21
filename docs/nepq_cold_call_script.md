@@ -87,6 +87,17 @@ Depending on how they answer:
   *"Oh, that makes sense. Most established businesses do. Out of curiosity, are you guys doing mostly digital, or do you have a way right now to reach every family within a 3-mile radius of the [Store Name] on a weekly basis?"*
 
 ### 4. "How much does it cost?"
-* **Rep (Down-to-earth, transparent without pinning before discovery):**  
-  *"It averages out to around [e.g., $25 to $50] a week, so it's less than a cup of coffee a day. But honestly, even if it were five dollars, if it doesn't bring in at least [1 or 2 new clients / deals] a month for you, it's not worth spending a dime on.*  
-  *Would it hurt to see the actual store traffic numbers first to see if those numbers even make sense for you?"*
+
+**Rule: never put a figure on the phone.** A number quoted before they have seen
+the panel gets remembered as the price of the wrong thing. Do not soften it with
+"a cup of coffee a day" either — that signals you expect the price to be the
+objection. Name the fact that you are not quoting, give the real reason, and
+anchor on *what it stands next to* instead of what it costs.
+
+* **Rep (down-to-earth, unhurried, not evasive):**  
+  *"Fair question, and I'm not going to dance around it. The honest answer is it depends which panel you end up on, and they are not the same thing. If I pick a number for you right now, I'm either quoting you something you didn't want or something that won't do the job — and either way you'd be pricing the wrong thing.*  
+  *What I can tell you is what it stands next to: people here weigh this against one mailer drop, not against an ad budget.*  
+  *Let me show you which panels are still open for a [Category] at that store, and the number explains itself. Does that seem reasonable?"*
+
+* **If they press for a figure anyway:**  
+  *"I get it, you don't want to waste a trip. Neither do I. Give me the few minutes to show you the panel and the traffic for your category — if the number is out of line when you see it, tell me to kick rocks and we're done."*

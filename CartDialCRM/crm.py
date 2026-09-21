@@ -167,11 +167,20 @@ OBJECTIONS
      mostly digital, or do you have a way right now to reach every family within
      three miles of the {at_store} every week?"
 
-  "How much does it cost?"
-    "It averages around $25 to $50 a week, less than a cup of coffee a day. But
-     honestly, even at five dollars, if it doesn't bring you at least a client or
-     two a month it isn't worth a dime. Would it hurt to look at the store's
-     traffic numbers first and see if they even make sense for you?"
+  "How much does it cost?"   (never quote a figure on the phone)
+    "Fair question, and I'm not going to dance around it. The honest answer is it
+     depends which panel you end up on, and they are not the same thing. If I pick
+     a number for you right now, I'm either quoting you something you didn't want
+     or something that won't do the job — and either way you'd be pricing the
+     wrong thing. What I can tell you is what it stands next to: people here weigh
+     this against one mailer drop, not against an ad budget.
+     Let me show you which panels are still open for {a_or_an(one)} at that store,
+     and the number explains itself. Does that seem reasonable?"
+
+    If they press for a figure anyway:
+    "I get it, you don't want to waste a trip. Neither do I. Give me the few
+     minutes to show you the panel and the traffic for your category — if the
+     number is out of line when you see it, tell me to kick rocks and we're done."
 '''
 
 def a_or_an(word):

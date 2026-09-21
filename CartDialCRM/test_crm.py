@@ -102,6 +102,15 @@ class CRMTests(unittest.TestCase):
         for expected in ['Juliana','Clay','Save Mart on Tracy Blvd','real estate agent','real estate agents in Tracy','Broker/Owner since 2005.']:
             self.assertIn(expected,text,expected)
         self.assertNotIn('[OWNER]',text);self.assertNotIn('[CITY]',text);self.assertNotIn('[YOUR NAME]',text)
+    def test_script_never_quotes_a_price(self):
+        lead_id=self.db.save_lead({'business_name':'Alpha','phone':'(209) 640-7111','category':'Realtors'})
+        text=self.db.script_for(lead_id)[0]
+        for banned in ['$','cup of coffee','a week,','per week','dollars','a dime']:
+            self.assertNotIn(banned,text,f'script must not quote a price: {banned!r}')
+        self.assertNotRegex(text,r'\$\s*\d|\d+\s*(dollars|bucks)')
+        # It must still answer the question rather than stonewall.
+        self.assertIn("I'm not going to dance around it",text)
+        self.assertIn('one mailer drop',text)
     def test_missing_fields_become_visible_brackets_not_silent_gaps(self):
         lead_id=self.db.save_lead({'business_name':'Mystery Shop','phone':'(209) 640-7112'})
         text,_=self.db.script_for(lead_id)
