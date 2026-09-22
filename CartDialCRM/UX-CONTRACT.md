@@ -14,6 +14,7 @@ are intentional; browser-only CSS/ARIA/URL contracts do not apply.
 | CRUD | Database | crm.py | create/edit, no deletion | test_crm.py |
 | Dial handoff | dial_uri + App.dial_lead | crm.py | card button, Ctrl+D on list | test_crm.py |
 | Call script | build_script + Database.script_for | crm.py | derived, or stored per lead | test_crm.py |
+| Call order | priority_of + Best leads first | crm.py | derived from notes | test_crm.py |
 
 Call insert and status update are atomic. Imported duplicates never overwrite
 existing records. Each explicit saved call counts one dial. Imported notes and
@@ -36,6 +37,15 @@ text assembly; any research that enriches it happens outside this app and lands
 in the ordinary About, notes, decision maker, and website fields. The dialed
 call form carries the script, because the lead card is unreachable behind it.
 Script columns are added to existing databases by ALTER TABLE at startup.
+
+Call order is derived, not entered. priority_of reads the rank the user already
+writes at the front of their notes, where TIER and PRIORITY share one scale and a
+smaller number calls first; an unranked lead sorts last so a new lead never
+silently jumps the queue. notes stays the source and priority follows it through
+save and import, and is backfilled by ALTER TABLE on existing databases. The Best
+leads first view hides closed leads. Poor fit is our own judgement that a lead is
+not worth calling and is kept distinct from Do not call, which is a promise to a
+person who asked; only the latter blocks logging a call.
 Native dialogs, keyboard traversal,
 text selection, scrolling, Escape, and window Close are the desktop primitives.
 There are no app-controlled web dialogs. No delete operation is provided.

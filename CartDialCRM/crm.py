@@ -20,7 +20,12 @@ DATA = Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'CartDialCRM'
 FIELDS = ['business_name', 'phone', 'decision_maker', 'category', 'store', 'address', 'website', 'about', 'notes']
 LABELS = ['Business name', 'Phone number', 'Decision maker', 'Business type', 'Store / location', 'Meeting address', 'Website', 'About this business', 'General notes']
 OUTCOMES = ['No answer', 'Voicemail', 'Gatekeeper', 'Spoke to decision maker', 'Callback requested', 'Appointment set', 'Not interested', 'Wrong number', 'Do not call']
-STATUSES = ['New', 'Working', 'Callback', 'Appointment set', 'Not interested', 'Wrong number', 'Do not call']
+STATUSES = ['New', 'Working', 'Callback', 'Appointment set', 'Not interested', 'Poor fit', 'Wrong number', 'Do not call']
+# Statuses that take a lead out of the calling rotation. 'Do not call' means the person asked
+# not to be called and is a promise; 'Poor fit' is our own judgement that the lead is not worth
+# a call. Keeping them separate stops bad-fit leads polluting a list that has to stay truthful.
+CLOSED = ('Do not call', 'Not interested', 'Wrong number', 'Poor fit', 'Appointment set')
+UNRANKED = 99
 # How a business type is said out loud in 'we restrict each store to just ONE ___'.
 # Categories with no entry fall back to the lowercased category name.
 TRADE_NOUNS = {
@@ -50,6 +55,16 @@ TRADE_HINTS = {
     'Pet Grooming and Boarding': [('veterinar','veterinarian'),('boarding','pet boarding kennel')],
     'Realtors': [('property manag','property manager')],
 }
+
+def priority_of(notes):
+    """Read the rank the user wrote at the front of their notes.
+
+    Their own convention is 'TIER 0' above 'PRIORITY 1'..'PRIORITY 8', so both keywords
+    share one scale and a smaller number calls first. Unranked leads sort last rather
+    than first, so adding a lead never silently jumps the queue.
+    """
+    found = re.match(r'\s*(?:TIER|PRIORITY)\s*(\d+)', notes or '', re.I)
+    return int(found.group(1)) if found else UNRANKED
 
 def greeting_name(decision_maker):
     """What you actually say at "Hey ___?".
@@ -257,7 +272,14 @@ class Database:
         existing = {row['name'] for row in self.con.execute('PRAGMA table_info(leads)')}
         for column in ['script','script_edited']:
             if column not in existing: self.con.execute(f"ALTER TABLE leads ADD COLUMN {column} TEXT DEFAULT ''")
+        if 'priority' not in existing:
+            self.con.execute(f'ALTER TABLE leads ADD COLUMN priority INTEGER DEFAULT {UNRANKED}')
+            self.backfill_priority()
         self.con.commit()
+    def backfill_priority(self):
+        """Derive priority from notes for every lead. Safe to re-run; notes stay the source."""
+        for row in self.con.execute('SELECT id,notes FROM leads').fetchall():
+            self.con.execute('UPDATE leads SET priority=? WHERE id=?',(priority_of(row['notes']),row['id']))
     def setting(self, key, default=''):
         row = self.con.execute('SELECT value FROM settings WHERE key=?',(key,)).fetchone()
         return row['value'] if row and row['value'] else default
@@ -280,6 +302,7 @@ class Database:
         allowed = FIELDS + ['status','callback','appointment','script']
         clean = {k:str(v).strip() for k,v in values.items() if k in allowed}
         if 'category' in clean: clean['category'] = category_name(clean['category'])
+        if 'notes' in clean: clean['priority'] = priority_of(clean['notes'])
         with self.con:
             if lead_id:
                 if 'script' in clean and clean['script'] != (self.lead(lead_id)['script'] or ''):
@@ -315,7 +338,7 @@ class Database:
                 key = (row['business_name'].casefold().strip(),phone_key(row['phone']))
                 if key in known: duplicates += 1; continue
                 vals = [category_name(row.get(k,'')) if k=='category' else str(row.get(k,'')).strip() for k in FIELDS]
-                self.con.execute('INSERT INTO leads('+','.join(FIELDS)+',created) VALUES ('+','.join('?' for _ in range(len(FIELDS)+1))+')',vals+[now()])
+                self.con.execute('INSERT INTO leads('+','.join(FIELDS)+',created,priority) VALUES ('+','.join('?' for _ in range(len(FIELDS)+2))+')',vals+[now(),priority_of(row.get('notes',''))])
                 known.add(key); added += 1
         return added,duplicates,invalid
     def category_totals(self):
@@ -419,16 +442,17 @@ class App:
         ttk.Button(search,text='Search',command=self.refresh).pack(side='left')
         ttk.Button(search,text='Clear',command=lambda:(self.query.set(''),self.refresh(),entry.focus_set())).pack(side='left',padx=4)
         self.filter = tk.StringVar(value='All leads')
-        box = ttk.Combobox(search,textvariable=self.filter,values=['All leads','Callbacks due','Upcoming appointments']+STATUSES,state='readonly',width=24)
+        box = ttk.Combobox(search,textvariable=self.filter,values=['Best leads first','All leads','Callbacks due','Upcoming appointments']+STATUSES,state='readonly',width=24)
         box.pack(side='right'); box.bind('<<ComboboxSelected>>',lambda e:self.refresh())
         area = ttk.Frame(frame); area.pack(fill='both',expand=True)
-        columns = ['Business','Phone','Decision maker','Calls','Status','Next callback']
+        columns = ['Rank','Business','Phone','Decision maker','Calls','Status','Next callback']
         self.tree = ttk.Treeview(area,columns=columns,show='headings',selectmode='browse')
         self.tree.tag_configure('stripe',background=COLORS['stripe'])
         self.tree.tag_configure('booked',foreground=COLORS['green'])
         self.tree.tag_configure('callback',foreground=COLORS['blue'])
         self.tree.tag_configure('stopped',foreground=COLORS['red'])
-        for col,width in zip(columns,[240,145,155,60,145,155]):
+        self.tree.tag_configure('unfit',foreground=COLORS['muted'])
+        for col,width in zip(columns,[55,240,145,155,60,145,155]):
             self.tree.heading(col,text=col); self.tree.column(col,width=width,minwidth=55)
         self.tree.pack(side='left',fill='both',expand=True)
         scrollbar = ttk.Scrollbar(area,orient='vertical',command=self.tree.yview); scrollbar.pack(side='right',fill='y'); self.tree.configure(yscrollcommand=scrollbar.set)
@@ -461,10 +485,15 @@ class App:
         sql = '''SELECT l.*, (SELECT COUNT(*) FROM calls c WHERE c.lead_id=l.id) AS call_count FROM leads l
                  WHERE (business_name LIKE ? OR phone LIKE ? OR decision_maker LIKE ? OR category LIKE ?)'''
         args = [q]*4; f = self.filter.get()
-        if f == 'Callbacks due': sql += " AND callback!='' AND callback<=? AND status NOT IN ('Do not call','Not interested','Wrong number','Appointment set')"; args.append(now())
+        closed = '(' + ','.join('?' for _ in CLOSED) + ')'
+        order = 'business_name COLLATE NOCASE'
+        if f == 'Callbacks due': sql += f" AND callback!='' AND callback<=? AND status NOT IN {closed}"; args += [now(),*CLOSED]
         elif f == 'Upcoming appointments': sql += " AND appointment>=?"; args.append(now())
+        elif f == 'Best leads first':
+            sql += f' AND status NOT IN {closed}'; args += list(CLOSED)
+            order = 'priority, business_name COLLATE NOCASE'
         elif f != 'All leads': sql += ' AND status=?'; args.append(f)
-        sql += ' ORDER BY business_name COLLATE NOCASE LIMIT 201 OFFSET ?'
+        sql += f' ORDER BY {order} LIMIT 201 OFFSET ?'
         args.append(self.page*200)
         rows = self.db.con.execute(sql,args).fetchall()
         has_next = len(rows)>200
@@ -478,7 +507,9 @@ class App:
             if r['status']=='Appointment set':tags.append('booked')
             elif r['status']=='Callback':tags.append('callback')
             elif r['status']=='Do not call':tags.append('stopped')
-            self.tree.insert('', 'end',iid=str(r['id']),values=(r['business_name'],r['phone'],r['decision_maker'],r['call_count'],r['status'],display_date(r['callback'])),tags=tags)
+            elif r['status']=='Poor fit':tags.append('unfit')
+            rank = '—' if r['priority']>=UNRANKED else str(r['priority'])
+            self.tree.insert('', 'end',iid=str(r['id']),values=(rank,r['business_name'],r['phone'],r['decision_maker'],r['call_count'],r['status'],display_date(r['callback'])),tags=tags)
         kept = [iid for iid in selected if self.tree.exists(iid)]
         if kept: self.tree.selection_set(kept); self.tree.see(kept[0])
         self.feedback.configure(text=f'Leads {self.page*200+1}–{self.page*200+len(rows)}. Enter opens a lead card; Ctrl+D dials the selected lead with TextNow.' if rows else 'No leads found. Add a lead, import a spreadsheet, or clear your filters.')

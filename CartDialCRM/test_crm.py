@@ -8,7 +8,7 @@ from pathlib import Path
 from datetime import datetime
 import zipfile
 import crm
-from crm import App,Database,read_sheet,valid_date,dial_uri,greeting_name,trade_noun,CATEGORIES
+from crm import App,Database,read_sheet,valid_date,dial_uri,greeting_name,trade_noun,priority_of,CATEGORIES
 
 class CRMTests(unittest.TestCase):
     def setUp(self):
@@ -188,6 +188,50 @@ class CRMTests(unittest.TestCase):
             self.assertEqual([w for w in root.winfo_children() if isinstance(w,tk.Toplevel)],[])
             self.assertEqual(self.db.lead(lead_id)['script'],'','an untouched script is never stored')
             self.assertEqual(self.db.lead(lead_id)['script_edited'],'')
+        finally:
+            root.destroy()
+    def test_priority_reads_the_users_own_ranking_convention(self):
+        self.assertEqual(priority_of('TIER 0 - office is IN the Save Mart center.'),0)
+        self.assertEqual(priority_of('PRIORITY 1. Same building as D&M.'),1)
+        self.assertEqual(priority_of('  priority 8 lowercase and indented'),8)
+        self.assertEqual(priority_of('Just some notes with no rank'),99)
+        self.assertEqual(priority_of(''),99)
+        self.assertEqual(priority_of(None),99)
+    def test_priority_follows_notes_through_save_and_import(self):
+        lead_id=self.db.save_lead({'business_name':'Alpha','phone':'(209) 640-7111','notes':'PRIORITY 3. Later.'})
+        self.assertEqual(self.db.lead(lead_id)['priority'],3)
+        self.db.save_lead({'business_name':'Alpha','phone':'(209) 640-7111','notes':'TIER 0 - promoted.'},lead_id)
+        self.assertEqual(self.db.lead(lead_id)['priority'],0)
+        self.db.import_rows([{'business_name':'Beta','phone':'(209) 640-7112','notes':'PRIORITY 5. Imported.'}])
+        self.assertEqual(self.db.con.execute("SELECT priority FROM leads WHERE business_name='Beta'").fetchone()[0],5)
+    def test_existing_database_gets_priority_backfilled_from_notes(self):
+        path=self.base/'legacy2.sqlite3'
+        old=sqlite3.connect(path)
+        old.executescript("CREATE TABLE leads (id INTEGER PRIMARY KEY, business_name TEXT NOT NULL, phone TEXT NOT NULL,"
+            "decision_maker TEXT DEFAULT '', category TEXT DEFAULT '', store TEXT DEFAULT '', address TEXT DEFAULT '',"
+            "website TEXT DEFAULT '', about TEXT DEFAULT '', notes TEXT DEFAULT '', status TEXT DEFAULT 'New',"
+            "callback TEXT DEFAULT '', appointment TEXT DEFAULT '', created TEXT NOT NULL);")
+        for name,note in [('Top','TIER 0 - best'),('Mid','PRIORITY 4. ok'),('None','no rank here')]:
+            old.execute('INSERT INTO leads(business_name,phone,notes,created) VALUES(?,?,?,?)',(name,'(209) 640-7111',note,'2026-01-01T00:00:00'))
+        old.commit();old.close()
+        migrated=Database(path)
+        ranks={r['business_name']:r['priority'] for r in migrated.con.execute('SELECT business_name,priority FROM leads')}
+        self.assertEqual(ranks,{'Top':0,'Mid':4,'None':99})
+        migrated.con.close()
+    def test_best_leads_first_orders_by_rank_and_hides_closed_leads(self):
+        for name,note,status in [('Zeta','TIER 0 - best','New'),('Alpha','PRIORITY 6. late','New'),
+                                 ('Mid','PRIORITY 2. second','New'),('Unranked','no rank','New'),
+                                 ('Dropped','TIER 0 - best but unfit','Poor fit'),
+                                 ('Refused','TIER 0 - best but refused','Do not call')]:
+            self.db.save_lead({'business_name':name,'phone':f'(209) 640-71{10+len(name)}','notes':note,'status':status})
+        root=tk.Tk()
+        try:
+            app=App(root,self.db);app.filter.set('Best leads first');app.refresh();root.update()
+            shown=[app.tree.item(i,'values')[1] for i in app.tree.get_children()]
+            self.assertEqual(shown,['Zeta','Mid','Alpha','Unranked'])
+            self.assertNotIn('Dropped',shown);self.assertNotIn('Refused',shown)
+            self.assertEqual(app.tree.item(app.tree.get_children()[0],'values')[0],'0')
+            self.assertEqual(app.tree.item(app.tree.get_children()[3],'values')[0],'—')
         finally:
             root.destroy()
     def widgets_in(self,widget):
