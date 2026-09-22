@@ -121,7 +121,10 @@ TRADE_HINTS = {
     'Culinary, Dance, and Music Schools': [('dance','dance studio'),('music','music school'),('culinary','cooking school')],
     'Fitness and Gymnastics': [('gymnastic','gymnastics gym'),('yoga','yoga studio'),('crossfit','gym')],
     'Home Security and Locksmiths': [('security','home security company'),('alarm','alarm company')],
-    'Psychiatrists and Family Counselors': [('psychiatr','psychiatrist'),('counsel','family counselor'),('therap','therapist')],
+    # 'therapist' and 'family counselor' describe the same LMFT, so splitting them only
+    # produced two different exclusivity claims inside one slot. A psychiatrist prescribes
+    # and is a genuinely different profession, so that split stays.
+    'Psychiatrists and Family Counselors': [('psychiatr','psychiatrist')],
     'Tailors and Alterations': [('dry clean','dry cleaner'),('alteration','alterations shop')],
     'Wedding Boutiques and Planning': [('boutique','bridal boutique'),('plann','wedding planner')],
     'Staffing Agencies and Talent Agencies': [('talent','talent agency')],
