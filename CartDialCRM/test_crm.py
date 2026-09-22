@@ -9,7 +9,7 @@ from pathlib import Path
 from datetime import datetime
 import zipfile
 import crm
-from crm import App,Database,read_sheet,valid_date,dial_uri,greeting_name,trade_noun,priority_of,CATEGORIES
+from crm import App,Database,read_sheet,valid_date,dial_uri,greeting_name,trade_noun,priority_of,plural,CATEGORIES
 
 class CRMTests(unittest.TestCase):
     def setUp(self):
@@ -136,6 +136,25 @@ class CRMTests(unittest.TestCase):
                 ('Valor & Virtue Barbershop','Spas and Salons','barber shop'),
                 ('Reflect Hair Studio','Spas and Salons','salon')]:
             self.assertEqual(trade_noun({'business_name':name,'category':category,'about':''}),expected,name)
+    def test_plural_handles_the_trade_nouns_actually_in_use(self):
+        # 'one car wash' is fine but 'local car washs in town' reads as carelessness in the
+        # one sentence meant to sound like an insider.
+        for one, many in [('car wash','car washes'),('cleaning company','cleaning companies'),
+                          ('storage facility','storage facilities'),('attorney','attorneys'),
+                          ('pool service','pool services'),('gym','gyms'),('jeweler','jewelers'),
+                          ('business','businesses'),('dentist','dentists'),('auto repair shop','auto repair shops')]:
+            self.assertEqual(plural(one),many,one)
+    def test_every_target_category_says_something_sayable(self):
+        # A category with no curated noun falls back to its own lowercased name, so the script
+        # says 'ONE photographers / photography and video'. A noun phrase containing 'and' is
+        # fine ('one moving and storage company'); echoing the category label is not.
+        for category in CATEGORIES:
+            one = trade_noun({'business_name':'Some Business','category':category,'about':''})
+            self.assertNotEqual(one,category.lower(),f'{category} has no curated trade noun')
+            self.assertNotIn('/',one,f'{category} yields an unsayable noun: {one!r}')
+            self.assertNotIn(',',one,f'{category} yields an unsayable noun: {one!r}')
+            self.assertEqual(one,one.strip())
+            self.assertTrue(plural(one).endswith(('s','es')),f'{category} pluralises badly: {plural(one)!r}')
     def test_script_never_quotes_a_price(self):
         lead_id=self.db.save_lead({'business_name':'Alpha','phone':'(209) 640-7111','category':'Realtors'})
         text=self.db.script_for(lead_id)[0]

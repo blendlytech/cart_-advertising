@@ -38,7 +38,67 @@ TRADE_NOUNS = {
     'Pet Grooming and Boarding': 'pet groomer',
     'Restaurants and Pizza': 'restaurant',
     'Chiropractors and Therapeutic Massage Studios': 'chiropractor',
+    'Preschools and Daycare': 'preschool',
+    'Fitness and Gymnastics': 'gym',
+    'Photographers / Photography and Video': 'photographer',
+    'Culinary, Dance, and Music Schools': 'dance studio',
+    'Landscapers & Yard Care': 'landscaper',
+    'Moving and Storage': 'moving and storage company',
+    'Car Washes': 'car wash',
+    'Jewelry Stores': 'jeweler',
+    'Cleaners': 'cleaning company',
+    'Pond and Pool Services': 'pool service',
+    'Attorneys': 'attorney',
+    'Mortgage Companies': 'mortgage broker',
+    'Auto Glass': 'auto glass shop',
+    'Tattoo Shops': 'tattoo shop',
+    # The rest have no leads yet. They carry a sayable default so the script is never
+    # gibberish the day a lead is added, but the wording is Clay's to correct -- he is the
+    # one saying it out loud, and 'one card room' versus 'one bingo hall' is his call.
+    'Alternative Medicine': 'acupuncturist',
+    'Amusements': 'amusement center',
+    'Appliance Repair': 'appliance repair shop',
+    'Art Schools': 'art school',
+    'Auto and Motorcycle Dealers': 'dealership',
+    'Auto Sound Systems': 'car audio shop',
+    'Auto Wrecking Yards': 'wrecking yard',
+    'Bail Bonds & Hydroponic Stores': 'bail bondsman',
+    'Bed and Bath Stores, Housewares': 'housewares store',
+    'Bicycle Sales and Repair': 'bike shop',
+    'Boutiques': 'boutique',
+    'Cabinet Makers': 'cabinet maker',
+    'Casinos and Bingo Parlours': 'card room',
+    'Chimney Sweepers': 'chimney sweep',
+    'Colleges and Vocational Schools': 'vocational school',
+    'Computer Repair Services': 'computer repair shop',
+    'Computer and Home Electronics Sales': 'electronics store',
+    'Dance Clubs': 'nightclub',
+    'Driving Schools': 'driving school',
+    'Entertainment': 'entertainment company',
+    'Equipment Rentals': 'equipment rental yard',
+    'Event and Party Planners': 'event planner',
+    'Home Security and Locksmiths': 'locksmith',
+    'Mold, Fire, and Water Damage Services': 'restoration company',
+    'Music Stores': 'music store',
+    'Party Supply Stores': 'party supply store',
+    'Psychiatrists and Family Counselors': 'family counselor',
+    'Satellite and Wireless Communications': 'wireless dealer',
+    'Segway Rentals': 'rental company',
+    'Staffing Agencies and Talent Agencies': 'staffing agency',
+    'Tailors and Alterations': 'tailor',
+    'Thrift Shops': 'thrift store',
+    'Wedding Boutiques and Planning': 'wedding planner',
 }
+
+def plural(noun):
+    """Pluralise a trade noun for 'local ___ in town tell us...'.
+
+    Naive 's' produces 'car washs' and 'cleaning companys', which reads as carelessness
+    in the one sentence that is supposed to sound like an insider talking.
+    """
+    if noun.endswith('y') and noun[-2:-1] not in 'aeiou': return noun[:-1] + 'ies'
+    if noun.endswith(('s', 'sh', 'ch', 'x', 'z')): return noun + 'es'
+    return noun + 's'
 # Some categories hold trades that are not interchangeable on a call: every lead filed
 # under 'Doctors and Urgent Care Clinics' is actually a dental practice, and telling a
 # dentist we reserve one urgent care clinic ends the call. Where a business names its own
@@ -54,6 +114,20 @@ TRADE_HINTS = {
     'Spas and Salons': [('barber','barber shop'),('nail','nail salon')],
     'Pet Grooming and Boarding': [('veterinar','veterinarian'),('boarding','pet boarding kennel')],
     'Realtors': [('property manag','property manager')],
+    'Landscapers & Yard Care': [('tree','tree service'),('nursery','garden nursery'),('junk','junk removal service')],
+    'Moving and Storage': [('storage','storage facility'),('mov','moving company')],
+    'Jewelry Stores': [('pawn','pawn shop')],
+    'Cleaners': [('carpet','carpet cleaner'),('window','window cleaning company'),('janitor','janitorial company')],
+    'Culinary, Dance, and Music Schools': [('dance','dance studio'),('music','music school'),('culinary','cooking school')],
+    'Fitness and Gymnastics': [('gymnastic','gymnastics gym'),('yoga','yoga studio'),('crossfit','gym')],
+    'Home Security and Locksmiths': [('security','home security company'),('alarm','alarm company')],
+    'Psychiatrists and Family Counselors': [('psychiatr','psychiatrist'),('counsel','family counselor'),('therap','therapist')],
+    'Tailors and Alterations': [('dry clean','dry cleaner'),('alteration','alterations shop')],
+    'Wedding Boutiques and Planning': [('boutique','bridal boutique'),('plann','wedding planner')],
+    'Staffing Agencies and Talent Agencies': [('talent','talent agency')],
+    'Auto and Motorcycle Dealers': [('motorcycle','motorcycle dealership'),('rv','RV dealership')],
+    'Bail Bonds & Hydroponic Stores': [('hydro','hydroponics store'),('bail','bail bondsman')],
+    'Casinos and Bingo Parlours': [('bingo','bingo hall'),('casino','casino')],
 }
 
 def priority_of(notes):
@@ -156,7 +230,7 @@ def build_script(lead, caller='', trade=''):
     city = city_of(lead['address'] or '') or '[CITY]'
     first = greeting_name(lead['decision_maker'])
     one = trade or trade_noun(lead)
-    many = one + ('' if one.endswith('s') else 's')
+    many = plural(one)
     at_store = f'{chain} on {street}' if street else (chain or '[STORE]')
     me = caller or '[YOUR NAME]'
     research = '\n'.join(f'  {line}' for line in [lead['about'] or '', lead['notes'] or ''] if line.strip())
