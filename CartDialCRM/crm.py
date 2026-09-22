@@ -26,26 +26,27 @@ STATUSES = ['New', 'Working', 'Callback', 'Appointment set', 'Not interested', '
 # a call. Keeping them separate stops bad-fit leads polluting a list that has to stay truthful.
 CLOSED = ('Do not call', 'Not interested', 'Wrong number', 'Poor fit', 'Appointment set')
 UNRANKED = 99
-# How a business type is said out loud in 'we restrict each store to just ONE ___'.
-# Categories with no entry fall back to the lowercased category name.
-TRADE_NOUNS = {
-    'Realtors': 'real estate agent',
+# What is sold: one slot per category, so this is the noun in 'we restrict each store to
+# just ONE ___'. Where a category mixes trades the wording has to cover all of them, because
+# offering a dry cleaner and an alterations shop different exclusives oversells one slot.
+SLOT_NOUNS = {
+    'Realtors': 'real estate or property management business',
     'Insurance Agents': 'insurance agent',
     'Automotive Repair': 'auto repair shop',
-    'Spas and Salons': 'salon',
-    'Doctors and Urgent Care Clinics': 'urgent care clinic',
-    'Construction & Home Services': 'contractor',
-    'Pet Grooming and Boarding': 'pet groomer',
+    'Spas and Salons': 'salon or barber shop',
+    'Doctors and Urgent Care Clinics': 'medical or dental practice',
+    'Construction & Home Services': 'home services contractor',
+    'Pet Grooming and Boarding': 'pet groomer, boarder or vet',
     'Restaurants and Pizza': 'restaurant',
-    'Chiropractors and Therapeutic Massage Studios': 'chiropractor',
+    'Chiropractors and Therapeutic Massage Studios': 'chiropractor or massage studio',
     'Preschools and Daycare': 'preschool',
-    'Fitness and Gymnastics': 'gym',
+    'Fitness and Gymnastics': 'gym or gymnastics studio',
     'Photographers / Photography and Video': 'photographer',
-    'Culinary, Dance, and Music Schools': 'dance studio',
-    'Landscapers & Yard Care': 'landscaper',
+    'Culinary, Dance, and Music Schools': 'dance, music or cooking school',
+    'Landscapers & Yard Care': 'landscaping or tree service',
     'Moving and Storage': 'moving and storage company',
     'Car Washes': 'car wash',
-    'Jewelry Stores': 'jeweler',
+    'Jewelry Stores': 'jewelry or pawn store',
     'Cleaners': 'cleaning company',
     'Pond and Pool Services': 'pool service',
     'Attorneys': 'attorney',
@@ -59,35 +60,61 @@ TRADE_NOUNS = {
     'Amusements': 'amusement center',
     'Appliance Repair': 'appliance repair shop',
     'Art Schools': 'art school',
-    'Auto and Motorcycle Dealers': 'dealership',
+    'Auto and Motorcycle Dealers': 'auto or motorcycle dealership',
     'Auto Sound Systems': 'car audio shop',
     'Auto Wrecking Yards': 'wrecking yard',
-    'Bail Bonds & Hydroponic Stores': 'bail bondsman',
+    'Bail Bonds & Hydroponic Stores': 'bail bonds office',
     'Bed and Bath Stores, Housewares': 'housewares store',
     'Bicycle Sales and Repair': 'bike shop',
     'Boutiques': 'boutique',
     'Cabinet Makers': 'cabinet maker',
-    'Casinos and Bingo Parlours': 'card room',
+    'Casinos and Bingo Parlours': 'card room or bingo hall',
     'Chimney Sweepers': 'chimney sweep',
-    'Colleges and Vocational Schools': 'vocational school',
+    'Colleges and Vocational Schools': 'college or vocational school',
     'Computer Repair Services': 'computer repair shop',
     'Computer and Home Electronics Sales': 'electronics store',
     'Dance Clubs': 'nightclub',
     'Driving Schools': 'driving school',
     'Entertainment': 'entertainment company',
     'Equipment Rentals': 'equipment rental yard',
-    'Event and Party Planners': 'event planner',
-    'Home Security and Locksmiths': 'locksmith',
+    'Event and Party Planners': 'party or event service',
+    'Home Security and Locksmiths': 'locksmith or security company',
     'Mold, Fire, and Water Damage Services': 'restoration company',
     'Music Stores': 'music store',
     'Party Supply Stores': 'party supply store',
-    'Psychiatrists and Family Counselors': 'family counselor',
+    'Psychiatrists and Family Counselors': 'counseling practice',
     'Satellite and Wireless Communications': 'wireless dealer',
     'Segway Rentals': 'rental company',
-    'Staffing Agencies and Talent Agencies': 'staffing agency',
-    'Tailors and Alterations': 'tailor',
+    'Staffing Agencies and Talent Agencies': 'staffing or talent agency',
+    'Tailors and Alterations': 'dry cleaner or tailor',
     'Thrift Shops': 'thrift store',
+    'Wedding Boutiques and Planning': 'bridal shop or wedding planner',
+}
+
+# What they call themselves, for the rapport line only: 'local dentists in Tracy tell us'.
+# Deliberately specific and singular, where SLOT_NOUNS is deliberately inclusive. Only
+# categories whose slot wording is too broad to say naturally need an entry here.
+TRADE_DEFAULTS = {
+    'Realtors': 'real estate agent',
+    'Doctors and Urgent Care Clinics': 'clinic',
+    'Chiropractors and Therapeutic Massage Studios': 'chiropractor',
+    'Construction & Home Services': 'contractor',
+    'Spas and Salons': 'salon',
+    'Pet Grooming and Boarding': 'pet groomer',
+    'Culinary, Dance, and Music Schools': 'dance studio',
+    'Landscapers & Yard Care': 'landscaper',
+    'Jewelry Stores': 'jeweler',
+    'Tailors and Alterations': 'tailor',
+    'Home Security and Locksmiths': 'locksmith',
+    'Psychiatrists and Family Counselors': 'family counselor',
+    'Event and Party Planners': 'event planner',
+    'Bail Bonds & Hydroponic Stores': 'bail bondsman',
+    'Fitness and Gymnastics': 'gym',
+    'Staffing Agencies and Talent Agencies': 'staffing agency',
+    'Auto and Motorcycle Dealers': 'dealership',
+    'Casinos and Bingo Parlours': 'card room',
     'Wedding Boutiques and Planning': 'wedding planner',
+    'Colleges and Vocational Schools': 'vocational school',
 }
 
 def plural(noun):
@@ -158,13 +185,22 @@ def greeting_name(decision_maker):
         return f"{'Dr' if title in {'dr','doctor'} else parts[0].rstrip('.').title()}. {parts[-1]}"
     return parts[0]
 
+def slot_noun(category):
+    """The category-level noun for the exclusivity promise. One slot per category, so every
+    lead in a category must hear the same thing or two of them get sold the same position."""
+    return SLOT_NOUNS.get(category or '', (category or 'business').lower())
+
 def trade_noun(lead):
-    """What this business is called out loud, preferring its own name over its category."""
+    """What this business calls itself, for rapport only -- 'local dentists in Tracy tell us'.
+
+    Never used for the exclusivity promise: that is slot_noun, because a dentist and an
+    urgent care share one slot even though they would never accept the same description.
+    """
     category = lead['category'] or ''
     haystack = f"{lead['business_name']} {lead['about'] or ''}".lower()
     for hint, noun in TRADE_HINTS.get(category, []):
         if hint in haystack: return noun
-    return TRADE_NOUNS.get(category, category.lower() or 'business')
+    return TRADE_DEFAULTS.get(category) or SLOT_NOUNS.get(category) or category.lower() or 'business'
 ALIASES = {'business':'business_name','businessname':'business_name','company':'business_name','companyname':'business_name','phone':'phone','phonenumber':'phone','telephone':'phone','decisionmaker':'decision_maker','decisionmakername':'decision_maker','contact':'decision_maker','contactname':'decision_maker','name':'decision_maker','notes':'notes','note':'notes','about':'about','aboutthisbusiness':'about','businessinformation':'about','category':'category','businesscategory':'category','store':'store','storelocation':'store','address':'address','meetingaddress':'address','website':'website'}
 ALIASES.update({'businesstype':'category','typeofbusiness':'category'})
 
@@ -232,8 +268,11 @@ def build_script(lead, caller='', trade=''):
     chain, street = store_label(lead['store'] or '')
     city = city_of(lead['address'] or '') or '[CITY]'
     first = greeting_name(lead['decision_maker'])
-    one = trade or trade_noun(lead)
-    many = plural(one)
+    # Two different jobs: 'said' builds rapport with what they call themselves, 'slot' is the
+    # promise and must be the category, because one category is one position on the panel.
+    said = trade or trade_noun(lead)
+    slot = slot_noun(lead['category'] or '')
+    many = plural(said)
     at_store = f'{chain} on {street}' if street else (chain or '[STORE]')
     me = caller or '[YOUR NAME]'
     research = '\n'.join(f'  {line}' for line in [lead['about'] or '', lead['notes'] or ''] if line.strip())
@@ -251,7 +290,7 @@ def build_script(lead, caller='', trade=''):
   "Yeah, it's regarding the local business sponsorship for the {at_store}
    cart project... I just needed to see if {first} is the one handling local
    community branding, or if someone else does that?"'''
-    return f'''{lead['business_name']}  ·  {one}  ·  {city}
+    return f'''{lead['business_name']}  ·  {said}  ·  {city}
 {'='*64}
 
 {gatekeeper}
@@ -273,7 +312,7 @@ THE HOOK  (low, conversational, detached)
    ...whereas with this you get exclusive category visibility in front of
    20,000+ local families who shop that store 2 to 3 times every week.
    The reason I reached out to you specifically is that we restrict each store
-   to just ONE {one}, and we haven't locked in our partner for this store yet.
+   to just ONE {slot}, and we haven't locked in our partner for this store yet.
    I was curious... are you guys even taking on more local business in {city}
    right now, or are your hands pretty full?"
 
@@ -293,7 +332,7 @@ OBJECTIONS
     "Totally understand. Just so I'm not bothering you in the future — when you
      say not interested, is that because you're already booked out with enough
      local customers, or you just haven't seen how supermarket cart branding
-     actually works for {a_or_an(one)}?"
+     actually works for {a_or_an(said)}?"
 
   "Just send me an email."
     "I can definitely send something over. The challenge is, without seeing the
@@ -313,7 +352,7 @@ OBJECTIONS
      or something that won't do the job — and either way you'd be pricing the
      wrong thing. What I can tell you is what it stands next to: people here weigh
      this against one mailer drop, not against an ad budget.
-     Let me show you which panels are still open for {a_or_an(one)} at that store,
+     Let me show you which panels are still open for {a_or_an(slot)} at that store,
      and the number explains itself. Does that seem reasonable?"
 
     If they press for a figure anyway:

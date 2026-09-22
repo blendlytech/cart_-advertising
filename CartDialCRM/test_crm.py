@@ -9,7 +9,7 @@ from pathlib import Path
 from datetime import datetime
 import zipfile
 import crm
-from crm import App,Database,read_sheet,valid_date,dial_uri,greeting_name,trade_noun,priority_of,plural,CATEGORIES
+from crm import App,Database,read_sheet,valid_date,dial_uri,greeting_name,trade_noun,slot_noun,build_script,priority_of,plural,CATEGORIES
 
 class CRMTests(unittest.TestCase):
     def setUp(self):
@@ -115,7 +115,8 @@ class CRMTests(unittest.TestCase):
         self.db.set_setting('caller_name','Clay')
         text,edited=self.db.script_for(lead_id)
         self.assertFalse(edited)
-        for expected in ['Juliana','Clay','Save Mart on Tracy Blvd','real estate agent','real estate agents in Tracy','Broker/Owner since 2005.']:
+        for expected in ['Juliana','Clay','Save Mart on Tracy Blvd','real estate agents in Tracy',
+                         'to just ONE real estate or property management business','Broker/Owner since 2005.']:
             self.assertIn(expected,text,expected)
         self.assertNotIn('[OWNER]',text);self.assertNotIn('[CITY]',text);self.assertNotIn('[YOUR NAME]',text)
     def test_greeting_name_handles_titles_and_bare_names(self):
@@ -146,15 +147,41 @@ class CRMTests(unittest.TestCase):
             self.assertEqual(plural(one),many,one)
     def test_every_target_category_says_something_sayable(self):
         # A category with no curated noun falls back to its own lowercased name, so the script
-        # says 'ONE photographers / photography and video'. A noun phrase containing 'and' is
-        # fine ('one moving and storage company'); echoing the category label is not.
+        # says 'local photographers / photography and videos in Tracy'. The rapport noun gets
+        # pluralised so it must be a clean singular; the slot noun is only ever said as-is, so
+        # a comma is fine there ('ONE dance, music or cooking school' reads fine out loud).
         for category in CATEGORIES:
-            one = trade_noun({'business_name':'Some Business','category':category,'about':''})
-            self.assertNotEqual(one,category.lower(),f'{category} has no curated trade noun')
-            self.assertNotIn('/',one,f'{category} yields an unsayable noun: {one!r}')
-            self.assertNotIn(',',one,f'{category} yields an unsayable noun: {one!r}')
-            self.assertEqual(one,one.strip())
-            self.assertTrue(plural(one).endswith(('s','es')),f'{category} pluralises badly: {plural(one)!r}')
+            said = trade_noun({'business_name':'Some Business','category':category,'about':''})
+            self.assertNotEqual(said,category.lower(),f'{category} has no curated rapport noun')
+            self.assertNotIn('/',said,f'{category} rapport noun is unsayable: {said!r}')
+            self.assertNotIn(',',said,f'{category} rapport noun is unsayable: {said!r}')
+            self.assertEqual(said,said.strip())
+            self.assertTrue(plural(said).endswith(('s','es')),f'{category} pluralises badly: {plural(said)!r}')
+            slot = slot_noun(category)
+            self.assertNotEqual(slot,category.lower(),f'{category} has no curated slot noun')
+            self.assertNotIn('/',slot,f'{category} slot noun is unsayable: {slot!r}')
+    def test_one_category_is_promised_as_exactly_one_slot(self):
+        # One category is one position on the panel. If two leads in a category hear different
+        # exclusivity nouns, both can be sold the same position -- a broken promise, which is
+        # the most expensive kind of mistake in this business.
+        leads = [('Tracy Valley Cleaners','Tailors and Alterations','dry cleaning and same-day service'),
+                 ('Tracy Alterations & Bridal','Tailors and Alterations','wedding gown alterations'),
+                 ('Ybarra Bros Jewelers','Jewelry Stores','buys gold and diamonds'),
+                 ('Tracy Pawn','Jewelry Stores','pawn loans and gold buying'),
+                 ('Tracy Family Dental','Doctors and Urgent Care Clinics','dental practice'),
+                 ('Sutter Urgent Care','Doctors and Urgent Care Clinics','urgent care')]
+        promised = {}
+        for name, category, about in leads:
+            text = build_script({'business_name':name,'category':category,'about':about,'notes':'',
+                                 'store':'Save Mart #781 - 875 S Tracy Blvd, Tracy CA',
+                                 'address':'1 Main St, Tracy, CA 95376','decision_maker':'Sam'},'Clay')
+            offer = text.split('to just ONE ')[1].split(',')[0]
+            promised.setdefault(category,set()).add(offer)
+        for category, offers in promised.items():
+            self.assertEqual(len(offers),1,f'{category} promises {sorted(offers)} - two exclusives, one slot')
+        # Rapport still adapts to the individual business even though the promise does not.
+        self.assertEqual(trade_noun({'business_name':'Tracy Pawn','category':'Jewelry Stores','about':'pawn'}),'pawn shop')
+        self.assertEqual(slot_noun('Jewelry Stores'),'jewelry or pawn store')
     def test_script_never_quotes_a_price(self):
         lead_id=self.db.save_lead({'business_name':'Alpha','phone':'(209) 640-7111','category':'Realtors'})
         text=self.db.script_for(lead_id)[0]
