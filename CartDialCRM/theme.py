@@ -32,11 +32,11 @@ def apply_theme(root):
     style.configure('TLabel',background=c['background'],foreground=c['ink'])
     style.configure('Muted.TLabel',foreground=c['muted'])
     style.configure('Title.TLabel',font=('Segoe UI',23,'bold'),foreground=c['navy'])
-    style.configure('TButton',padding=(12,8),background=c['surface'],foreground=c['ink'],bordercolor=c['border'],lightcolor=c['surface'],darkcolor=c['surface'],focuscolor=c['teal'])
+    style.configure('TButton',padding=(12,8),background=c['surface'],foreground=c['ink'],bordercolor=c['border'],relief='flat',focuscolor=c['teal'])
     style.map('TButton',background=[('disabled',c['disabled']),('pressed',c['blue_tint']),('active',c['stripe'])],foreground=[('disabled',c['muted'])],bordercolor=[('focus',c['teal'])])
     for name,base,hover in [('Primary',c['teal'],c['teal_hover']),('Navy',c['navy'],c['navy_hover'])]:
-        style.configure(name+'.TButton',font=('Segoe UI',10,'bold'),background=base,foreground=c['white'],bordercolor=base,lightcolor=base,darkcolor=base,focuscolor=c['gold'])
-        style.map(name+'.TButton',background=[('disabled',c['disabled']),('pressed',hover),('active',hover)],foreground=[('disabled',c['muted']),('!disabled',c['white'])],bordercolor=[('focus',c['gold'])])
+        style.configure(name+'.TButton',font=('Segoe UI',10,'bold'),background=base,foreground=c['white'],bordercolor=base,relief='flat',focuscolor=c['gold'])
+        style.map(name+'.TButton',background=[('disabled',c['disabled']),('pressed',hover),('active',hover)],foreground=[('disabled',c['muted'])],bordercolor=[('focus',c['gold'])])
     for name in ['TEntry','TCombobox']:
         style.configure(name,padding=(6,3),fieldbackground=c['surface'],background=c['surface'],foreground=c['ink'],bordercolor=c['border'],lightcolor=c['surface'],darkcolor=c['surface'],arrowcolor=c['navy'])
         style.map(name,bordercolor=[('focus',c['teal'])],fieldbackground=[('readonly',c['surface'])],foreground=[('readonly',c['ink'])],selectbackground=[('focus',c['navy'])],selectforeground=[('focus',c['white'])])
