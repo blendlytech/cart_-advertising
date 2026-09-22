@@ -1,3 +1,4 @@
+import csv
 import sqlite3
 import tempfile
 import unittest
@@ -43,6 +44,21 @@ class CRMTests(unittest.TestCase):
     def test_csv_preserves_quoted_notes_and_zeros(self):
         path=self.base/'test.csv';path.write_text('Business name,Phone,Notes\nAlpha,001234,"Line one, detail\nLine two"\n',encoding='utf-8-sig')
         headers,rows=read_sheet(path);self.assertEqual(rows[0][1],'001234');self.assertEqual(rows[0][2],'Line one, detail\nLine two')
+    def test_csv_keeps_columns_aligned_when_a_cell_quotes_a_phrase(self):
+        # csv.Sniffer infers doublequote from whether it happens to see "" in its sample.
+        # Guessing False splits a cell containing a quoted phrase into extra columns and
+        # every later field lands in the wrong one, which is silent data corruption.
+        path=self.base/'quoted.csv'
+        with path.open('w',newline='',encoding='utf-8-sig') as fh:
+            w=csv.writer(fh)
+            w.writerow(['Business name','Phone number','About','Notes'])
+            w.writerow(['Prime Pool','(209) 640-1838','Advertises a "Best of Tracy" win, which means they already pay for local reach.','PRIORITY 2. Ranked.'])
+        headers,rows=read_sheet(path)
+        self.assertEqual(len(headers),4)
+        self.assertEqual(len(rows[0]),4,'a quoted phrase must not add columns')
+        self.assertIn('"Best of Tracy"',rows[0][2])
+        self.assertEqual(rows[0][3],'PRIORITY 2. Ranked.')
+        self.assertEqual(priority_of(rows[0][3]),2,'a mis-split row silently loses the rank')
     def test_xlsx_first_sheet_uses_workbook_relationship(self):
         path=self.base/'test.xlsx'
         with zipfile.ZipFile(path,'w') as z:

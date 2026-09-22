@@ -353,7 +353,12 @@ class Database:
         return [''] + list(CATEGORIES) + extras
     def backup(self, path):
         if Path(path).resolve() == self.path.resolve(): raise ValueError('Choose a different file from the active database.')
-        with sqlite3.connect(path) as dest: self.con.backup(dest)
+        # sqlite3's context manager commits the transaction but leaves the connection open, so
+        # `with sqlite3.connect(...)` leaks a handle that keeps the backup file locked on Windows
+        # for the rest of the session -- the file cannot then be moved, synced or deleted.
+        dest = sqlite3.connect(path)
+        try: self.con.backup(dest)
+        finally: dest.close()
 
 def read_sheet(path):
     path = Path(path)
@@ -361,9 +366,18 @@ def read_sheet(path):
         raw = path.read_bytes()
         try: content = raw.decode('utf-8-sig')
         except UnicodeDecodeError: content = raw.decode('cp1252')
-        try: dialect = csv.Sniffer().sniff(content[:8192], delimiters=',;\t')
-        except csv.Error: dialect = csv.excel
-        rows = list(csv.reader(io.StringIO(content),dialect))
+        # Sniffer is only trusted for the delimiter. It infers doublequote from whether it
+        # happens to see a "" in the sample, and guessing False silently splits any cell
+        # containing a quoted phrase into extra columns, so every later field lands in the
+        # wrong place. Quoting rules stay excel's, which is what spreadsheets actually write.
+        # A sheet written on Windows carries \r\n, and inside a quoted multi-line cell those
+        # survive into the stored text and then into the generated call script. Normalise so
+        # imported notes read the same whatever platform wrote the file.
+        content = content.replace('\r\n', '\n').replace('\r', '\n')
+        delimiter = ','
+        try: delimiter = csv.Sniffer().sniff(content[:8192], delimiters=',;\t').delimiter
+        except csv.Error: pass
+        rows = list(csv.reader(io.StringIO(content), csv.excel, delimiter=delimiter))
     elif path.suffix.lower() == '.xlsx':
         ns = {'m':'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
         with zipfile.ZipFile(path) as z:
