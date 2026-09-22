@@ -260,7 +260,7 @@ def city_of(address):
     return ''
 
 def build_script(lead, caller='', trade=''):
-    """Assemble a call script from one lead's fields using the markdown templates.
+    """Assemble a NEPQ call script from one lead's fields. Pure text; no network.
 
     Every blank comes from stored data, so the script re-derives itself as the lead
     is corrected. Unknown values become visible [BRACKETS] rather than silent gaps.
@@ -268,60 +268,98 @@ def build_script(lead, caller='', trade=''):
     chain, street = store_label(lead['store'] or '')
     city = city_of(lead['address'] or '') or '[CITY]'
     first = greeting_name(lead['decision_maker'])
+    # Two different jobs: 'said' builds rapport with what they call themselves, 'slot' is the
+    # promise and must be the category, because one category is one position on the panel.
     said = trade or trade_noun(lead)
     slot = slot_noun(lead['category'] or '')
+    many = plural(said)
     at_store = f'{chain} on {street}' if street else (chain or '[STORE]')
     me = caller or '[YOUR NAME]'
     research = '\n'.join(f'  {line}' for line in [lead['about'] or '', lead['notes'] or ''] if line.strip())
+    # With no name, asking for "the owner" marks you as a cold caller. Ask who owns the
+    # decision instead: it is answerable by whoever picked up, and it hands you the name.
+    gatekeeper = f'''GATEKEEPER  (no name on file — get one before you pitch anything)
+  "Hey, good morning... who would I need to talk to about the local business
+   sponsorship for the {at_store} cart project? ... Is that the owner?"
 
-    priority = priority_of(lead['notes'] or '')
-    category = (lead['category'] or '').casefold()
+  Write the name down and use it from here on. Read WHAT I KNOW ABOUT THEM below
+  first — it may name a person to ask for by name, which works far better.''' if first == '[OWNER]' else f'''GATEKEEPER  (low, relaxed, peer-to-peer)
+  "Hey, good morning... I'm looking for {first} — are they around today?"
 
-    if priority == 0:
-        script_file = 'shopping_cart_directory_script.md'
-    elif category == 'realtors':
-        script_file = 'realtor_script.md'
-    else:
-        script_file = 'safeway_referral_script.md'
+  If asked what it's regarding:
+  "Yeah, it's regarding the local business sponsorship for the {at_store}
+   cart project... I just needed to see if {first} is the one handling local
+   community branding, or if someone else does that?"'''
+    return f'''{lead['business_name']}  ·  {said}  ·  {city}
+{'='*64}
 
-    script_path = BASE / 'references' / script_file
-    try:
-        template = script_path.read_text(encoding='utf-8')
-    except Exception:
-        template = f"Error: Could not load script template {script_file}."
+{gatekeeper}
 
-    # Perform specific replacements based on the templates in references/
-    # safeway_referral_script.md
-    template = re.sub(r'my name is \_{2,}', f'my name is {me}', template, flags=re.I)
-    template = re.sub(r'\(X\s*&\s*Y\s*Street\)', street or '[CROSS STREETS]', template, flags=re.I)
-    template = re.sub(r'\(insert type of business\)', slot, template, flags=re.I)
-    template = re.sub(r'\(insert business type\)', slot, template, flags=re.I)
-    template = re.sub(r'So \_{2,}', f'So {first}', template, flags=re.I)
-    if lead['address']:
-        template = template.replace('(Confirm Address)', f'(Confirm Address: {lead["address"]})')
+OPENER  (familiar and calm; the ... are real pauses)
+  "Hey {first}? ... it's {me}... with the community sponsorship project
+   over at the {at_store}.
+   Look, I know you weren't expecting my call today, and to be completely
+   upfront... I'm not even sure if what we're rolling out is a fit for what
+   you're doing right now...
+   Do you have about 30 seconds for me to tell you why I called, and then you
+   can tell me whether it makes sense to keep chatting or hang up?"
 
-    # realtor_script.md
-    template = re.sub(r'My Name is X', f'My Name is {me}', template, flags=re.I)
-    template = re.sub(r'\(Safeway/Savemart stores\)', f'{chain} stores' if chain else 'local stores', template, flags=re.I)
-    template = re.sub(r'\(X\s*&\s*Y\s*street\)', street or '[CROSS STREETS]', template, flags=re.I)
+THE HOOK  (low, conversational, detached)
+  "So we're finalizing the new cart directory and child seat panels for the
+   {at_store}.
+   Typically local {many} in {city} tell us they're tired of burning money on
+   digital clicks or mailers that get tossed before anyone reads them...
+   ...whereas with this you get exclusive category visibility in front of
+   20,000+ local families who shop that store 2 to 3 times every week.
+   The reason I reached out to you specifically is that we restrict each store
+   to just ONE {slot}, and we haven't locked in our partner for this store yet.
+   I was curious... are you guys even taking on more local business in {city}
+   right now, or are your hands pretty full?"
 
-    # shopping_cart_directory_script.md
-    template = re.sub(r'THIS IS \_{2,}', f'THIS IS {me.upper()}', template, flags=re.I)
-    template = re.sub(r'CONJUNCTION WITH \_{2,} SUPERMARKETS', f'CONJUNCTION WITH {chain.upper()} SUPERMARKETS', template, flags=re.I)
-    template = re.sub(r'ONE \_{2,} THAT WE CAN RECOMMEND', f'ONE {slot.upper()} THAT WE CAN RECOMMEND', template, flags=re.I)
-    template = re.sub(r'THE \_{2,} AREA', f'THE {city.upper()} AREA', template, flags=re.I)
-    template = re.sub(r'IN OUR \_{2,} SUPERMARKET', f'IN OUR {chain.upper()} SUPERMARKET', template, flags=re.I)
-    template = re.sub(r'BE A \_{2,}', f'BE A {slot.upper()}', template, flags=re.I)
-    template = re.sub(r'BE OUR \_{2,}', f'BE OUR {slot.upper()}', template, flags=re.I)
+WHAT I KNOW ABOUT THEM
+{research or '  (No research yet — fill in About and General notes on this lead.)'}
 
-    # Clean up markdown headers for plain text display
-    template = re.sub(r'^# .*\n', '', template, count=1)
-    template = re.sub(r'\*\*Source.*?\n\n---\n\n', '', template, flags=re.M | re.S)
+THE ASK  (detached, matter-of-fact)
+  "Rather than trying to explain visual layouts over the phone while you're
+   busy running your day... would you be completely opposed to taking 5 or 10
+   minutes this week just to look at the store mock-ups and the foot-traffic
+   breakdown? If it's not a fit, no hard feelings — we'll just open the
+   category to another business in town.
+   Would Thursday morning around 10:00 hurt, or would Friday afternoon be better?"
 
-    header = f"{lead['business_name']}  ·  {said}  ·  {city}\n{'='*64}\n\n"
-    research_section = f"\n\n{'='*64}\nWHAT I KNOW ABOUT THEM\n{research or '  (No research yet)'}"
+OBJECTIONS
+  "Not interested."
+    "Totally understand. Just so I'm not bothering you in the future — when you
+     say not interested, is that because you're already booked out with enough
+     local customers, or you just haven't seen how supermarket cart branding
+     actually works for {a_or_an(said)}?"
 
-    return header + template.strip() + research_section
+  "Just send me an email."
+    "I can definitely send something over. The challenge is, without seeing the
+     actual store layout and which panels are still unreserved, an email just
+     looks like generic numbers. Would you be opposed to a quick 5 minutes, or
+     letting me drop off a sample printout? If it's a no, just tell me."
+
+  "We already do advertising."
+    "That makes sense, most established businesses do. Out of curiosity, are you
+     mostly digital, or do you have a way right now to reach every family within
+     three miles of the {at_store} every week?"
+
+  "How much does it cost?"   (never quote a figure on the phone)
+    "Fair question, and I'm not going to dance around it. The honest answer is it
+     depends which panel you end up on, and they are not the same thing. If I pick
+     a number for you right now, I'm either quoting you something you didn't want
+     or something that won't do the job — and either way you'd be pricing the
+     wrong thing. What I can tell you is what it stands next to: people here weigh
+     this against one mailer drop, not against an ad budget.
+     Let me show you which panels are still open for {a_or_an(slot)} at that store,
+     and the number explains itself. Does that seem reasonable?"
+
+    If they press for a figure anyway:
+    "I get it, you don't want to waste a trip. Neither do I. Give me the few
+     minutes to show you the panel and the traffic for your category — if the
+     number is out of line when you see it, tell me to kick rocks and we're done."
+'''
 
 def a_or_an(word):
     return ('an ' if word[:1].lower() in 'aeiou' else 'a ') + word if word else 'a business'
